@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pytest
+httpx
+flake8
+celery
+redis
+black
+ansible-runner[ansible]
+sqlalchemy
+psycopg2-binary
