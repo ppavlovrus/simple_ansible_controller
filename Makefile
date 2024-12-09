@@ -1,4 +1,4 @@
-.PHONY: all build run test lint format clean
+.PHONY: all build run test lint format clean add-task
 
 DOCKER_COMPOSE = docker-compose
 DC_FILE = -f docker-compose.yml
@@ -9,31 +9,29 @@ build:
 run:
 	$(DOCKER_COMPOSE) $(DC_FILE) up
 
-# Остановка и удаление контейнеров
 down:
 	$(DOCKER_COMPOSE) $(DC_FILE) down
 
-# Запуск тестов
 test:
-	pytest
+	PYTHONPATH=./app pytest
 
-# Линтинг с помощью flake8
 lint:
-	flake8 .
+	flake8 app/. tests/.
 
-# Форматирование кода с помощью black
 format:
-	black .
+	black app/. tests/.
 
-# Очистка Docker контейнеров и образов
 clean:
 	$(DOCKER_COMPOSE) $(DC_FILE) down --volumes --remove-orphans
 	docker system prune -f
 
-# Запуск всех проверок и тестов
 check: lint test
 
-# Помощь
+add-task:
+	curl -X POST http://localhost:8000/add-task/ \
+	-H "Content-Type: application/json" \
+	-d '{"playbook_path": "/app/ansible_playbooks/example_playbook.yml", "inventory": "/app/ansible_playbooks/inventory", "run_time": "2024-11-01T12:00:00"}'
+
 help:
 	@echo "Usage:"
 	@echo "  make build       - Сборка Docker контейнеров"
@@ -44,3 +42,4 @@ help:
 	@echo "  make format      - Форматирование кода black"
 	@echo "  make clean       - Очистка системы от контейнеров и образов"
 	@echo "  make check       - Запуск линтинга и тестов"
+	@echo "  make add-task    - Добавляет задачу для выполнения плейбука в тестовых контейнерах"
