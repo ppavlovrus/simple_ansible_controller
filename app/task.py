@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 
+
 class Task(BaseModel):
     playbook_path: str
     inventory: str
