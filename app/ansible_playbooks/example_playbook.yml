@@ -1,0 +1,8 @@
+ ---
+ - name: Example playbook
+   hosts: ansible_hosts
+   tasks:
+     - name: Ensure a package is installed
+       apt:
+         name: curl
+         state: present
