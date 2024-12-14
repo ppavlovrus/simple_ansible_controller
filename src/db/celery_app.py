@@ -59,7 +59,7 @@ def run_playbook(task_id: int):
         )
 
         response = ansible_runner.run(
-            private_data_dir="..", playbook=playbook_path,
+            private_data_dir="../..", playbook=playbook_path,
             inventory=inventory, verbosity=5
         )
 
