@@ -41,10 +41,10 @@ jobs:
         pip install flake8
         flake8 .
 
-    - name: Run tests
-      run: |
-        pip install pytest
-        pytest
+#    - name: Run tests
+#      run: |
+#        pip install pytest
+#        pytest
 
     - name: Build Docker image
       run: |

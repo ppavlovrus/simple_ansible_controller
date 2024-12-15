@@ -42,13 +42,11 @@ async def add_task(task: Task, db: Session = Depends(get_db)):
         save_task_to_db(task, db)
         # Schedule the task using the saved task's ID
         task_id = schedule_task(task, db)
-        return {"task_id": task_id, "message": "Task added "
-                                               "to the queue"}
+        return {"task_id": task_id, "message": "Task added " "to the queue"}
     except SQLAlchemyError as e:
         print(e)
         raise HTTPException(
-            status_code=500, detail="Failed to save task "
-                                    "to the database"
+            status_code=500, detail="Failed to save task " "to the database"
         )
 
 
@@ -59,12 +57,15 @@ async def remove_task(task_id: str):
     if result.state in ["PENDING", "RECEIVED"]:
         result.revoke(terminate=True)
         return {"message": f"Task {task_id} revoked"}
-    raise HTTPException(status_code=404, detail=f"Task {task_id} "
-                                                f"cannot be revoked")
+    # fmt: off
+    raise HTTPException(status_code=404,
+                        detail=f"Task {task_id} cannot be revoked")
+
+
+# fmt: on
 
 
 # Placeholder endpoint for clearing the queue
 @app.post("/clear-queue/")
 async def clear_queue():
-    return {"message": "Manual queue clearing not "
-                       "implemented in Celery"}
+    return {"message": "Manual queue clearing not " "implemented in Celery"}

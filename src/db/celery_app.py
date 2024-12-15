@@ -1,16 +1,15 @@
 from celery import Celery
 from datetime import datetime
-from models.models  import (TaskModel,
-                            SessionLocal)
+from models.models import TaskModel, SessionLocal
 from tasks.task import Task
 from sqlalchemy.orm import Session
 import ansible_runner
 
-app = Celery(
-    "tasks",
-    broker='redis://redis:6379/0',
-    backend='redis://redis:6379/0'
-)
+# fmt: off
+app = Celery("tasks",
+             broker="redis://redis:6379/0",
+             backend="redis://redis:6379/0")
+# fmt: on
 
 
 # Correct session management
@@ -60,8 +59,10 @@ def run_playbook(task_id: int):
         )
 
         response = ansible_runner.run(
-            private_data_dir="../..", playbook=playbook_path,
-            inventory=inventory, verbosity=5
+            private_data_dir="../..",
+            playbook=playbook_path,
+            inventory=inventory,
+            verbosity=5,
         )
 
         if response.rc == 0:
