@@ -33,8 +33,6 @@ async def test_remove_task():
     )
     task_id = response.json()["task_id"]
 
-
     delete_response = await client.delete(f"/remove-task/{task_id}")
     assert delete_response.status_code == 200
-    assert delete_response.json()["message"] == (f"Task "
-                                                 f"{task_id} revoked")
+    assert delete_response.json()["message"] == (f"Task " f"{task_id} revoked")

@@ -16,10 +16,10 @@ test:
 	PYTHONPATH=./app pytest
 
 lint:
-	flake8 app/. tests/.
+	flake8 src/. tests/.
 
 format:
-	black app/. tests/.
+	black src/. tests/.
 
 clean:
 	$(DOCKER_COMPOSE) $(DC_FILE) down --volumes --remove-orphans
