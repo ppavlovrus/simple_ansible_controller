@@ -46,9 +46,13 @@ jobs:
 #        pip install pytest
 #        pytest
 
-    - name: Build Docker image
+    - name: Build Docker image from src
       run: |
-        docker build -t myapp:latest .
+        docker build -t myapp:latest -f src/Dockerfile src/
+
+    - name: Build Docker image from ansible_test_host
+      run: |
+        docker build -t ansiblehost:latest -f ansible_test_host/Dockerfile ansible_test_host/
 
     - name: Install Docker Compose
       run: |
