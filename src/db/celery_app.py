@@ -1,7 +1,7 @@
 from celery import Celery
 from datetime import datetime
-from models import TaskModel, SessionLocal
-from task import Task
+from models.models  import TaskModel, SessionLocal
+from tasks.task import Task
 from sqlalchemy.orm import Session
 import ansible_runner
 

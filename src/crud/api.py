@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException, Depends
 from celery.result import AsyncResult
-from celery_app import (
+from db.celery_app import (
     schedule_task,
     app as celery_app,
     restore_tasks_from_db,
     save_task_to_db,
 )
-from task import Task
-from models import SessionLocal, init_db
+from tasks.task import Task
+from models.models import SessionLocal, init_db
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
