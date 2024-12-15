@@ -1,8 +1,55 @@
 ---
-- name: Example playbook
+- name: Install and configure Nginx and Postfix
   hosts: ansible_hosts
+  become: yes
   tasks:
-    - name: Ensure a package is installed
+    - name: Ensure APT cache is up-to-date
       apt:
-        name: curl
+        update_cache: yes
+
+    - name: Install Nginx
+      apt:
+        name: nginx
         state: present
+
+    - name: Start and enable Nginx service
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Install Postfix
+      debconf:
+        name: postfix
+        question: '{{ item.question }}'
+        value: '{{ item.value }}'
+        vtype: '{{ item.vtype }}'
+      with_items:
+        - { question: 'postfix/main_mailer_type', value: 'Internet Site', vtype: 'string' }
+        - { question: 'postfix/mailname', value: 'example.com', vtype: 'string' }
+      tags: postfix
+
+    - name: Ensure Postfix is installed
+      apt:
+        name: postfix
+        state: present
+
+    - name: Start and enable Postfix service
+      systemd:
+        name: postfix
+        state: started
+        enabled: yes
+
+    - name: Configure Postfix to listen on all interfaces
+      lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^inet_interfaces ='
+        line: 'inet_interfaces = all'
+      notify:
+        - Restart Postfix
+
+  handlers:
+    - name: Restart Postfix
+      service:
+        name: postfix
+        state: restarted

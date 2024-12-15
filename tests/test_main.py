@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app  # main FASTAPI app
+from src.crud.api import app  # main FASTAPI src
 
 client = TestClient(app)
 
