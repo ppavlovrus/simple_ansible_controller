@@ -31,15 +31,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r src/requirements.txt
 
-    - name: Lint with flake8
-      run: |
-        pip install flake8
-        flake8 .
-
     - name: Format code with black
       run: |
         pip install black
         black --check .
+
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        flake8 .
 
     - name: Run tests
       run: |
@@ -50,11 +50,19 @@ jobs:
       run: |
         docker build -t myapp:latest .
 
-    - name: Push Docker image (optional)
-      env:
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Install Docker Compose
       run: |
-        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-        docker tag myapp:latest myrepo/myapp:latest
-        docker push myrepo/myapp:latest
+        sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+
+    - name: Set up Docker Compose environment
+      run: docker-compose up -d
+
+    - name: Run application tests
+      run: |
+        # Here you can run any commands that will test your application against the test services
+        echo "Running service tests"
+
+    - name: Tear down Docker Compose
+      if: always()
+      run: docker-compose down

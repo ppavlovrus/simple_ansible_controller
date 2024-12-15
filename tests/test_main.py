@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from src.crud.api import app  # main FASTAPI src
+from src.crud.api import app
 
 client = TestClient(app)
 
@@ -36,4 +36,5 @@ async def test_remove_task():
 
     delete_response = await client.delete(f"/remove-task/{task_id}")
     assert delete_response.status_code == 200
-    assert delete_response.json()["message"] == f"Task {task_id} revoked"
+    assert delete_response.json()["message"] == (f"Task "
+                                                 f"{task_id} revoked")
