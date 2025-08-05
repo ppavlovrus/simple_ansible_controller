@@ -69,6 +69,90 @@ async def remove_task(task_id: str):
 # fmt: on
 
 
+# Endpoint to list all tasks
+@app.get("/tasks/")
+async def list_tasks(db: Session = Depends(get_db)):
+    """List all tasks in the database"""
+    try:
+        from db.celery_app import load_tasks_from_db
+        
+        tasks = load_tasks_from_db(db)
+        
+        task_list = []
+        for task in tasks:
+            # Get Celery task status if available
+            try:
+                celery_result = AsyncResult(str(task.id), app=celery_app)
+                task_status = celery_result.state
+            except:
+                task_status = "UNKNOWN"
+            
+            task_info = {
+                "id": task.id,
+                "playbook_path": task.playbook_path,
+                "inventory": task.inventory,
+                "run_time": task.run_time.isoformat() if task.run_time else None,
+                "is_generated": task.is_generated,
+                "safety_validated": task.safety_validated,
+                "status": task_status,
+                "generation_metadata": task.generation_metadata,
+                "validation_errors": task.validation_errors
+            }
+            task_list.append(task_info)
+        
+        return {
+            "success": True,
+            "tasks": task_list,
+            "total_count": len(task_list),
+            "message": f"Found {len(task_list)} tasks"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(e)}")
+
+
+# Endpoint to get a specific task
+@app.get("/tasks/{task_id}")
+async def get_task(task_id: int, db: Session = Depends(get_db)):
+    """Get details of a specific task"""
+    try:
+        task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        
+        # Get Celery task status
+        try:
+            celery_result = AsyncResult(str(task.id), app=celery_app)
+            task_status = celery_result.state
+        except:
+            task_status = "UNKNOWN"
+        
+        task_info = {
+            "id": task.id,
+            "playbook_path": task.playbook_path,
+            "inventory": task.inventory,
+            "run_time": task.run_time.isoformat() if task.run_time else None,
+            "playbook_content": task.playbook_content,
+            "is_generated": task.is_generated,
+            "safety_validated": task.safety_validated,
+            "status": task_status,
+            "generation_metadata": task.generation_metadata,
+            "validation_errors": task.validation_errors
+        }
+        
+        return {
+            "success": True,
+            "task": task_info,
+            "message": f"Task {task_id} details retrieved successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get task: {str(e)}")
+
+
 # Placeholder endpoint for clearing the queue
 @app.post("/clear-queue/")
 async def clear_queue():

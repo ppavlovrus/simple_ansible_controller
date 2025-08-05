@@ -8,6 +8,7 @@ A modern Ansible automation platform that uses Large Language Models (LLMs) to g
 - 🛡️ **Safety Validation**: Built-in safety checks to prevent dangerous operations
 - 📋 **Template System**: Reusable Jinja2 templates for common automation patterns
 - 🔄 **Task Scheduling**: Schedule playbook execution with Celery
+- 📊 **Task Management**: List, view, and manage scheduled tasks
 - 🌐 **REST API**: Full REST API for integration with other tools
 - 💻 **CLI Interface**: Command-line interface for easy interaction
 - 🐳 **Docker Support**: Containerized deployment with Docker Compose

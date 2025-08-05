@@ -158,6 +158,93 @@ def remove_task(task_id, api_url):
 
 @cli.command()
 @click.option('--api-url', default='http://localhost:8000', help='API base URL')
+@click.option('--detailed', '-d', is_flag=True, help='Show detailed task information')
+def list_tasks(api_url, detailed):
+    """List all scheduled tasks"""
+    
+    try:
+        response = requests.get(f"{api_url}/tasks/")
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        if result.get("success"):
+            tasks = result["tasks"]
+            if tasks:
+                click.echo(f"📋 Found {len(tasks)} tasks:")
+                click.echo("=" * 60)
+                for task in tasks:
+                    click.echo(f"ID: {task['id']}")
+                    click.echo(f"Status: {task['status']}")
+                    click.echo(f"Playbook: {task['playbook_path']}")
+                    click.echo(f"Inventory: {task['inventory']}")
+                    click.echo(f"Run Time: {task['run_time']}")
+                    click.echo(f"Generated: {'Yes' if task['is_generated'] else 'No'}")
+                    
+                    if detailed:
+                        if task.get('generation_metadata'):
+                            click.echo(f"LLM Provider: {task['generation_metadata'].get('provider', 'N/A')}")
+                        if task.get('validation_errors'):
+                            click.echo(f"Validation Errors: {len(task['validation_errors'])}")
+                        if task.get('playbook_content'):
+                            click.echo(f"Playbook Content: {len(task['playbook_content'])} characters")
+                    
+                    click.echo("-" * 40)
+            else:
+                click.echo("No tasks found")
+        else:
+            click.echo("❌ Failed to list tasks")
+    
+    except requests.exceptions.RequestException as e:
+        click.echo(f"❌ API request failed: {e}")
+
+
+@cli.command()
+@click.option('--task-id', '-t', required=True, type=int, help='Task ID')
+@click.option('--api-url', default='http://localhost:8000', help='API base URL')
+def get_task(task_id, api_url):
+    """Get detailed information about a specific task"""
+    
+    try:
+        response = requests.get(f"{api_url}/tasks/{task_id}")
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        if result.get("success"):
+            task = result["task"]
+            click.echo(f"📋 Task {task_id} Details:")
+            click.echo("=" * 50)
+            click.echo(f"ID: {task['id']}")
+            click.echo(f"Status: {task['status']}")
+            click.echo(f"Playbook: {task['playbook_path']}")
+            click.echo(f"Inventory: {task['inventory']}")
+            click.echo(f"Run Time: {task['run_time']}")
+            click.echo(f"Generated: {'Yes' if task['is_generated'] else 'No'}")
+            click.echo(f"Safety Validated: {'Yes' if task['safety_validated'] else 'No'}")
+            
+            if task.get('generation_metadata'):
+                click.echo(f"LLM Provider: {task['generation_metadata'].get('provider', 'N/A')}")
+                click.echo(f"Generated At: {task['generation_metadata'].get('timestamp', 'N/A')}")
+            
+            if task.get('validation_errors'):
+                click.echo(f"Validation Errors: {len(task['validation_errors'])}")
+                for error in task['validation_errors']:
+                    click.echo(f"  - {error}")
+            
+            if task.get('playbook_content'):
+                click.echo(f"\n📄 Playbook Content:")
+                click.echo("=" * 30)
+                click.echo(task['playbook_content'])
+        else:
+            click.echo("❌ Failed to get task details")
+    
+    except requests.exceptions.RequestException as e:
+        click.echo(f"❌ API request failed: {e}")
+
+
+@cli.command()
+@click.option('--api-url', default='http://localhost:8000', help='API base URL')
 def status(api_url):
     """Check API status"""
     

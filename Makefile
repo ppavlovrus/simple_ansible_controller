@@ -1,4 +1,4 @@
-.PHONY: all build run test lint format clean add-task generate-playbook list-templates render-template
+.PHONY: all build run test lint format clean add-task generate-playbook list-templates render-template list-tasks get-task
 
 DOCKER_COMPOSE = docker-compose
 DC_FILE = -f docker-compose.yml
@@ -47,6 +47,13 @@ render-template:
 	-H "Content-Type: application/json" \
 	-d '{"hosts": "web_servers", "web_server": "nginx", "port": 80}'
 
+list-tasks:
+	curl -X GET http://localhost:8000/tasks/
+
+get-task:
+	@echo "Example: Get details of task ID 1"
+	curl -X GET http://localhost:8000/tasks/1
+
 help:
 	@echo "Usage:"
 	@echo "  make build       - Сборка Docker контейнеров"
@@ -61,3 +68,5 @@ help:
 	@echo "  make generate-playbook - Генерирует плейбук с помощью LLM"
 	@echo "  make list-templates - Показывает доступные шаблоны"
 	@echo "  make render-template - Рендерит шаблон с переменными"
+	@echo "  make list-tasks   - Показывает все запланированные задачи"
+	@echo "  make get-task     - Получает детали конкретной задачи"
