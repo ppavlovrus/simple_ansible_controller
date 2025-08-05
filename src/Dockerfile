@@ -28,6 +28,9 @@ RUN chmod 600 /root/.ssh/id_rsa
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy environment example
+COPY env.example /app/.env.example
+
 COPY . /app
 COPY ./ansible_playbooks /app/ansible_playbooks/
 
