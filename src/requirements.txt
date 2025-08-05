@@ -9,3 +9,10 @@ black
 ansible-runner[ansible]
 sqlalchemy
 psycopg2-binary
+openai
+anthropic
+python-dotenv
+jinja2
+pyyaml
+click
+requests

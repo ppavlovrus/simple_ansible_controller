@@ -26,6 +26,9 @@ def save_task_to_db(task: Task, db: Session):
         playbook_path=task.playbook_path,
         inventory=task.inventory,
         run_time=task.run_time,
+        playbook_content=task.playbook_content,
+        is_generated=task.is_generated,
+        generation_metadata=task.generation_metadata,
     )
     db.add(db_task)
     db.commit()
@@ -53,22 +56,49 @@ def run_playbook(task_id: int):
 
         playbook_path = task.playbook_path
         inventory = task.inventory
-        print(
-            f"Playbook started: {playbook_path} "
-            f"with inventory: {inventory} at {datetime.now()}"
-        )
-
-        response = ansible_runner.run(
-            private_data_dir="../..",
-            playbook=playbook_path,
-            inventory=inventory,
-            verbosity=5,
-        )
+        
+        # Handle generated playbooks
+        if task.is_generated and task.playbook_content:
+            import tempfile
+            import os
+            
+            # Create temporary playbook file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+                f.write(task.playbook_content)
+                temp_playbook_path = f.name
+            
+            print(
+                f"Generated playbook started: {temp_playbook_path} "
+                f"with inventory: {inventory} at {datetime.now()}"
+            )
+            
+            try:
+                response = ansible_runner.run(
+                    private_data_dir="../..",
+                    playbook=temp_playbook_path,
+                    inventory=inventory,
+                    verbosity=5,
+                )
+            finally:
+                # Clean up temporary file
+                os.unlink(temp_playbook_path)
+        else:
+            print(
+                f"Playbook started: {playbook_path} "
+                f"with inventory: {inventory} at {datetime.now()}"
+            )
+            
+            response = ansible_runner.run(
+                private_data_dir="../..",
+                playbook=playbook_path,
+                inventory=inventory,
+                verbosity=5,
+            )
 
         if response.rc == 0:
-            result_message = f"Executed playbook: {playbook_path} successfully"
+            result_message = f"Executed playbook successfully"
         else:
-            result_message = f"Failed to execute playbook: {playbook_path}"
+            result_message = f"Failed to execute playbook"
 
         db.delete(task)
         db.commit()
@@ -83,6 +113,9 @@ def schedule_task(task: Task, db: Session):
         playbook_path=task.playbook_path,
         inventory=task.inventory,
         run_time=task.run_time,
+        playbook_content=task.playbook_content,
+        is_generated=task.is_generated,
+        generation_metadata=task.generation_metadata,
     )
     db.add(db_task)
     db.commit()
