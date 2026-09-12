@@ -47,6 +47,7 @@ build-backend = "poetry.core.masonry.api"
 serve = "python -m ansible_mcp"
 tests = "pytest"
 lint = "ruff check . && ruff format --check . && mypy src"
+eval = "python evals/scenario_runner.py"
 fmt = "ruff format . && ruff check --fix ."
 
 [tool.pytest.ini_options]
@@ -56,7 +57,7 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "evals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "C4", "C90", "SIM", "RUF", "ANN", "D"]
@@ -68,6 +69,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "ANN"]
+# The harness is a script: it prints, it has a main(), and its judgements are
+# data rather than an API.
+"evals/*" = ["ANN", "T201"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12

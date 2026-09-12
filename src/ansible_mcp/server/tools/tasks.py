@@ -185,14 +185,20 @@ def register(server: MCPServer, services: Services) -> None:
     @server.tool(annotations=STOP)
     @audited
     async def cancel_task(task_id: str, confirm: bool = False) -> str:
-        """Stop a run that is queued or in progress.
+        """Stop one queued or running playbook, by id.
+
+        This is not a restart and not a retry: there is no way to resume a run.
+        Starting the same work again means calling run_playbook, which creates a
+        new run. Stopping several runs means finding their ids with list_tasks
+        and calling this once per id; there is no "cancel everything".
 
         Cancelling mid-run leaves the hosts in whatever state the playbook reached:
         the tasks already applied are not rolled back. That is why this needs
         explicit confirmation.
 
         Args:
-            task_id: identifier returned by run_playbook.
+            task_id: identifier returned by run_playbook. Required: this acts on
+                exactly one run.
             confirm: must be true for the cancellation to happen.
 
         Returns:

@@ -40,8 +40,10 @@ def register(server: MCPServer, services: Services) -> None:
         executed.
 
         The content is checked for being a well-formed playbook (valid YAML, a
-        list of plays). It is not checked for being a good idea: nothing here
-        judges what a playbook does.
+        list of plays) and a malformed one is refused, so this doubles as the
+        only structural check available: there is no separate syntax-check tool.
+        It is not checked for being a good idea, though: nothing here judges what
+        a playbook does.
 
         Args:
             name: how the playbook will be addressed later.

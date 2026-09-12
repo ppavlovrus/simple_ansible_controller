@@ -38,9 +38,13 @@ def register(server: MCPServer, services: Services) -> None:
 
         Args:
             name: how runs will refer to this provider.
-            plugin_type: which plugin to use; list_providers shows what is
-                installed.
-            config: the plugin's configuration.
+            plugin_type: which plugin to use. "static" is built in and covers a
+                fixed inventory, whether written inline or read from a file;
+                list_providers reports any others this installation has. Do not
+                invent a type: an unknown one is refused.
+            config: the plugin's configuration. For "static", either
+                {"inventory": "<inventory text>"} or
+                {"inventory_file": "/path/to/hosts"}.
 
         Returns:
             A JSON object describing the stored provider.

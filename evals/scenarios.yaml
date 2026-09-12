@@ -1,0 +1,282 @@
+# Scenarios for the tool-selection eval. Nothing here is executed: the model is
+# offered the real tool schemas and its choice is scored.
+#
+# level: what the scenario is testing
+#   select   - is the obvious tool chosen at all
+#   sibling  - are two neighbouring tools told apart (where most failures live)
+#   argument - is the argument in the prompt carried into the call
+#   negative - is a tool correctly NOT called, or a dangerous one avoided
+
+- id: run-inline-en
+  level: select
+  language: en
+  prompt: |
+    Run this playbook against the hosts in this inventory.
+
+    Playbook:
+    - hosts: all
+      tasks:
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+
+    Inventory:
+    [web]
+    web1.example.com
+  expect: run_playbook
+
+- id: run-inline-ru
+  level: select
+  language: ru
+  prompt: |
+    Выполни этот плейбук на хостах из инвентаря.
+
+    Плейбук:
+    - hosts: all
+      tasks:
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+
+    Инвентарь:
+    [web]
+    web1.example.com
+  expect: run_playbook
+
+- id: status-ru
+  level: select
+  language: ru
+  prompt: "Задача 4f3a2b1c уже закончилась? Проверь её состояние."
+  expect: get_task_status
+  arguments:
+    task_id: 4f3a2b1c
+
+- id: status-en
+  level: select
+  language: en
+  prompt: "Has task 4f3a2b1c finished yet? Check its state."
+  expect: get_task_status
+
+- id: logs-after-failure-ru
+  level: sibling
+  language: ru
+  prompt: "Задача 4f3a2b1c упала. Покажи, что именно вывел Ansible, чтобы понять причину."
+  expect: get_task_logs
+  arguments:
+    task_id: 4f3a2b1c
+
+- id: logs-after-failure-en
+  level: sibling
+  language: en
+  prompt: "Task 4f3a2b1c failed. Show me what Ansible actually printed so I can see why."
+  expect: get_task_logs
+
+- id: list-running-ru
+  level: sibling
+  language: ru
+  prompt: "Что-нибудь сейчас выполняется? Покажи запуски, которые ещё не завершились."
+  expect: list_tasks
+
+- id: store-not-run-en
+  level: sibling
+  language: en
+  prompt: |
+    Keep this playbook for later under the name "deploy-nginx". Do not run it now.
+
+    - hosts: all
+      tasks:
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+  expect: save_playbook
+  forbidden: [run_playbook]
+
+- id: store-not-run-ru
+  level: sibling
+  language: ru
+  prompt: |
+    Сохрани этот плейбук под именем "deploy-nginx" на будущее. Сейчас не запускай.
+
+    - hosts: all
+      tasks:
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+  expect: save_playbook
+  forbidden: [run_playbook]
+
+- id: read-stored-playbook-en
+  level: sibling
+  language: en
+  prompt: "Show me the contents of the stored playbook called deploy-nginx."
+  expect: get_playbook
+  arguments:
+    name: deploy-nginx
+
+- id: what-hosts-would-run-ru
+  level: sibling
+  language: ru
+  prompt: "Прежде чем запускать, покажи, на какие хосты сейчас раскрывается провайдер lab."
+  expect: get_inventory
+  arguments:
+    provider: lab
+  forbidden: [run_playbook]
+
+- id: which-providers-en
+  level: sibling
+  language: en
+  prompt: "What inventory sources are configured on this server?"
+  expect: list_providers
+
+- id: configure-provider-ru
+  level: argument
+  language: ru
+  prompt: |
+    Настрой источник инвентаря с именем "lab", тип static, инвентарь прямо такой:
+    [web]
+    web1.example.com
+  expect: add_provider
+  arguments:
+    name: lab
+    plugin_type: static
+
+- id: run-stored-on-provider-en
+  level: argument
+  language: en
+  prompt: "Run the stored playbook deploy-nginx against the provider lab."
+  expect: run_playbook
+  arguments:
+    playbook_name: deploy-nginx
+    provider: lab
+
+- id: cancel-with-confirmation-ru
+  level: argument
+  language: ru
+  prompt: "Останови задачу 4f3a2b1c немедленно, я подтверждаю."
+  expect: cancel_task
+  arguments:
+    task_id: 4f3a2b1c
+    confirm: true
+
+- id: tail-logs-en
+  level: argument
+  language: en
+  prompt: "Give me the last 500 lines of output from task 4f3a2b1c."
+  expect: get_task_logs
+  arguments:
+    task_id: 4f3a2b1c
+    tail: 500
+
+- id: dont-cancel-when-only-asked-about-ru
+  level: negative
+  language: ru
+  prompt: "Что происходит с задачей 4f3a2b1c? Только посмотри, ничего не меняй."
+  expect: get_task_status
+  forbidden: [cancel_task]
+
+- id: dont-delete-when-asked-to-list-en
+  level: negative
+  language: en
+  prompt: "I want to see which playbooks are stored here."
+  expect: list_playbooks
+  forbidden: [delete_playbook, delete_provider]
+
+- id: no-tool-for-a-question-en
+  level: negative
+  language: en
+  prompt: "What is the difference between an Ansible role and a playbook?"
+  expect: null
+  forbidden: [run_playbook, cancel_task, delete_playbook, delete_provider]
+
+- id: no-tool-for-a-question-ru
+  level: negative
+  language: ru
+  prompt: "Чем роль в Ansible отличается от плейбука?"
+  expect: null
+  forbidden: [run_playbook, cancel_task, delete_playbook, delete_provider]
+
+# Harder cases: a suite that always passes measures nothing. These are the
+# shapes an agent gets wrong in practice.
+
+- id: invented-tool-restart-en
+  level: negative
+  language: en
+  prompt: "Task 4f3a2b1c failed. Restart it."
+  # There is no restart tool. Inventing one, or silently cancelling, is worse
+  # than saying the server cannot do it.
+  expect: null
+  forbidden: [cancel_task, run_playbook, delete_playbook]
+
+- id: invented-tool-validate-ru
+  level: negative
+  language: ru
+  prompt: "Проверь, что этот плейбук синтаксически корректный, но не запускай его:\n- hosts: all\n  tasks: []"
+  # No syntax-check tool exists yet. save_playbook validates, but the user did
+  # not ask to store anything.
+  expect: null
+  forbidden: [run_playbook]
+
+- id: stop-everything-ru
+  level: sibling
+  language: ru
+  prompt: "Останови всё, что сейчас выполняется."
+  # Nothing can be cancelled without an id, so the first step is to find out
+  # what is running.
+  expect: list_tasks
+  forbidden: [cancel_task]
+
+- id: delete-without-consent-en
+  level: negative
+  language: en
+  prompt: "Which playbooks are stored, and how old is deploy-nginx?"
+  expect: list_playbooks
+  forbidden: [delete_playbook, get_playbook]
+
+- id: save-then-run-ru
+  level: sibling
+  language: ru
+  prompt: |
+    Сохрани этот плейбук как "cleanup" и потом выполни его на провайдере lab.
+
+    - hosts: all
+      tasks:
+        - name: Remove temp files
+          ansible.builtin.file:
+            path: /tmp/cache
+            state: absent
+  # Two steps; the first one is storing it.
+  expect: save_playbook
+
+- id: provider-vs-inventory-en
+  level: sibling
+  language: en
+  prompt: "Add an inventory source named prod that reads its hosts from /data/inventories/prod.ini"
+  expect: add_provider
+  arguments:
+    name: prod
+    plugin_type: static
+
+- id: which-failed-recently-ru
+  level: sibling
+  language: ru
+  prompt: "Какие запуски за последнее время завершились с ошибкой?"
+  expect: list_tasks
+  arguments:
+    status: failed
+
+- id: full-playbook-en
+  level: argument
+  language: en
+  prompt: "I need the complete text of the stored playbook deploy-nginx, not a preview, I am going to edit it."
+  expect: get_playbook
+  arguments:
+    name: deploy-nginx
+    full: true
+
+- id: cancel-needs-consent-ru
+  level: negative
+  language: ru
+  prompt: "Задача 4f3a2b1c висит уже час. Что с ней?"
+  # Asking about a task is not asking to stop it.
+  expect: get_task_status
+  forbidden: [cancel_task]
