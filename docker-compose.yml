@@ -1,74 +1,27 @@
-version: '3.8'
-
+# Test hosts for running playbooks against something real.
+# The application itself runs on the host during development; its image is built
+# separately once there is a server to run.
 services:
-  web:
-    build:
-      context: ./src
-      dockerfile: Dockerfile
-    ports:
-      - "8000:80"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - mynetwork
-
-  db:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: user123
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: tasksdb
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "user123", "-d", "tasksdb"]
-      interval: 10s
-      retries: 5
-    networks:
-      - mynetwork
-
-  redis:
-    image: "redis:alpine"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      retries: 5
-    networks:
-      - mynetwork
-
   ansible_host_1:
     build:
       context: ./ansible_test_host
       dockerfile: Dockerfile
     ports:
-      - "2222:22" # Внешний порт 2222 привязан к внутреннему 22
+      - "2222:22"
     healthcheck:
-      test: [ "CMD", "nc", "-z", "localhost", "22" ]
+      test: ["CMD", "nc", "-z", "localhost", "22"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - mynetwork
 
   ansible_host_2:
     build:
       context: ./ansible_test_host
       dockerfile: Dockerfile
     ports:
-      - "2223:22" # Внешний порт 2223 привязан к внутреннему 22
+      - "2223:22"
     healthcheck:
-      test: [ "CMD", "nc", "-z", "localhost", "22" ]
+      test: ["CMD", "nc", "-z", "localhost", "22"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - mynetwork
-
-volumes:
-  pgdata:
-
-networks:
-  mynetwork:

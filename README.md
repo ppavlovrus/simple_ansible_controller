@@ -4,8 +4,10 @@ A modern Ansible automation platform that uses Large Language Models (LLMs) to g
 
 *Русская версия: [README.ru.md](README.ru.md)*
 
-> **Project status — read this first.** What is described below is the original
-> prototype. The project is being reshaped into a minimal, agent-facing Ansible
+> **Project status — read this first.** The prototype described below has been
+> removed from the code: the LLM generation, Celery and PostgreSQL layers are gone and
+> the core is being rebuilt. **The commands in this file do not work right now.** This
+> README is rewritten at the end of the rebuild. The project is being reshaped into a minimal, agent-facing Ansible
 > controller: MCP as the primary interface, SQLite and asyncio instead of
 > PostgreSQL/Redis/Celery, and no LLM playbook generation (that is the calling agent's
 > job). See **[docs/concept.md](docs/concept.md)** for the target concept — the problem

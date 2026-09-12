@@ -1,0 +1,8 @@
+# Test hosts from docker-compose.yml, reachable on the host's loopback.
+[ansible_hosts]
+ansible_host_1 ansible_host=127.0.0.1 ansible_port=2222 ansible_user=root
+ansible_host_2 ansible_host=127.0.0.1 ansible_port=2223 ansible_user=root
+
+[ansible_hosts:vars]
+ansible_ssh_private_key_file=tests/fixtures/keys/id_rsa
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
