@@ -2,6 +2,13 @@
 
 A modern Ansible automation platform that uses Large Language Models (LLMs) to generate Ansible playbooks from natural language descriptions. This project combines the power of AI with traditional infrastructure automation.
 
+> **Project status — read this first.** What is described below is the original
+> prototype. The project is being reshaped into a minimal, agent-facing Ansible
+> controller: MCP as the primary interface, SQLite and asyncio instead of
+> PostgreSQL/Redis/Celery, and no LLM playbook generation (that is the calling agent's
+> job). See **[docs/concept.md](docs/concept.md)** for the target concept — the problem
+> it solves, who it is for, how it works, and its advantages and trade-offs.
+
 ## Features
 
 - 🤖 **AI-Powered Playbook Generation**: Generate Ansible playbooks using natural language descriptions
@@ -28,24 +35,32 @@ A modern Ansible automation platform that uses Large Language Models (LLMs) to g
 
 ### Setup
 
-1. **Clone and build the project:**
+1. **Generate local SSH keys:**
+   ```bash
+   make keygen
+   ```
+   Keys are never committed to the repository. `make build` depends on this target, so
+   a fresh ed25519 pair is created on the first build; the private key goes into the
+   controller image and the public one into the test host.
+
+2. **Clone and build the project:**
    ```bash
    make clean
    make build
    ```
 
-2. **Configure environment variables:**
+3. **Configure environment variables:**
    ```bash
    cp src/env.example src/.env
    # Edit src/.env with your API keys
    ```
 
-3. **Start the application:**
+4. **Start the application:**
    ```bash
    make run
    ```
 
-4. **Access the API:**
+5. **Access the API:**
    - API Documentation: http://localhost:8000/docs
    - Health Check: http://localhost:8000/status
 
