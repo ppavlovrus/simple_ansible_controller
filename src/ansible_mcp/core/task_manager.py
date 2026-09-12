@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from ansible_mcp.core.executor import Executor, RunResult
+    from ansible_mcp.core.executor import Executor, RunResult, SyntaxCheckResult
 
 log = logging.getLogger("ansible_mcp.task_manager")
 
@@ -51,6 +51,8 @@ class SubmitRequest:
     provider_name: str | None = None
     variables: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    check: bool = False
+    diff: bool = False
 
 
 class TaskManager:
@@ -177,6 +179,8 @@ class TaskManager:
                 provider_name=request.provider_name,
                 variables=dict(request.variables),
                 tags=list(request.tags),
+                check_mode=request.check,
+                diff_mode=request.diff,
             )
             session.add(task)
             await session.commit()
@@ -205,6 +209,14 @@ class TaskManager:
             query = query.where(Task.status == status)
         async with self._session_factory() as session:
             return list(await session.scalars(query))
+
+    async def count_output_lines(self, task_id: str) -> int:
+        """Return how many lines of output the run has produced so far."""
+        return await asyncio.to_thread(self._executor.count_lines, task_id)
+
+    async def syntax_check(self, playbook: str) -> SyntaxCheckResult:
+        """Parse a playbook without running or recording anything."""
+        return await asyncio.to_thread(self._executor.syntax_check, playbook)
 
     async def read_output(self, task_id: str, tail: int | None = None) -> str:
         """Return what the run has written so far, with secrets removed.
@@ -347,6 +359,8 @@ class TaskManager:
             inventory=request.inventory,
             variables=request.variables,
             tags=request.tags,
+            check=request.check,
+            diff=request.diff,
         )
         run = asyncio.create_task(self._executor.run(run_request, cancellation))
 

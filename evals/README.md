@@ -57,16 +57,20 @@ restraint would measure obedience, not tool choice.
 
 Prompts are in Russian and English, because that is how the requests arrive.
 
-## Baseline, 2026-09-12
+## Baseline, after ADR-0014
 
-Both models: **25/29 (86%)**, with the same schemas.
+Both models: **30/33 (91%)**, on 33 scenarios.
 
 | | qwen2.5-coder:7b | qwen2.5-coder:14b |
 |---|---|---|
-| select | 4/4 | 4/4 |
-| sibling | 10/12 | 10/12 |
-| argument | 5/5 | 5/5 |
-| negative | 6/8 | 6/8 |
+| select | 5/5 | 5/5 |
+| sibling | 11/13 | 12/13 |
+| argument | 8/8 | 8/8 |
+| negative | 6/7 | 5/7 |
+
+The previous baseline was 25/29 (86%) on both. Four scenarios were added with
+the dry-run and syntax-check tools, and the improvement is not from the suite
+getting easier — see below.
 
 Neither model emits structured tool calls: both answer with correct JSON in the
 message body and leave `tool_calls` empty. That is the model build under Ollama,
@@ -89,6 +93,21 @@ descriptions, not by changing the suite:
 - **A request to check syntax reached for whatever was nearest.** `save_playbook`
   now says it is the only structural check available.
 
+### The rename that the eval paid for
+
+The syntax check shipped as `check_playbook`. On the first re-run, 7b scored
+28/33 and got `what-would-change-ru` wrong: asked what a playbook *would change
+on the hosts*, it called `check_playbook` instead of `run_playbook(check=true)`.
+
+The descriptions already said which was which. What pulled it wrong was the
+name: two tools, one called `check_playbook` and one taking `check=true`, and a
+prompt containing "check". Renaming it to `syntax_check_playbook` took 7b to
+30/33, with `select` and `argument` both clean. Nothing else changed.
+
+Worth stating plainly: a tool name is part of the description, and two tools
+whose names overlap compete no matter how carefully the docstrings distinguish
+them.
+
 ### Known limits, unfixed on purpose
 
 - **"Останови всё"** still reaches for `cancel_task` in both models, even though
@@ -102,16 +121,28 @@ descriptions, not by changing the suite:
 A suite that always passes measures nothing, so these stay in as failures rather
 than being deleted or relaxed.
 
-## Chains, baseline 2026-09-12
+## Chains, baseline after ADR-0014
 
-`qwen2.5-coder:14b`: **2/4**.
+`qwen2.5-coder:14b`: **2/5**.
 
 | Chain | Result |
 |---|---|
 | `save-then-run` | ok, after one refusal it corrected itself |
 | `find-and-diagnose` | ok, straight through |
 | `provider-then-run` | fails: keeps sending both `inventory` and `provider` |
-| `confirm-gate` | fails: reaches `cancel_task` but never gets a run started |
+| `confirm-gate` | fails: never gets a run started, so never cancels one |
+| `check-then-run` | fails: checks, then checks again, sending both `playbook` and `playbook_name` |
+
+The new chain fails the same way the other two do, and one refusal was rewritten
+because of it. The model was passing `playbook_name` alongside the text, which
+means it read the argument as "the name for this playbook" rather than "a
+playbook already stored here". The refusal now says exactly that, and points at
+`save_playbook` for the thing the model seemed to want.
+
+It did not help: 14b still loops. Recording that honestly, because the fix was
+worth making anyway — the message is now true about what the mistake was — and
+because a stronger model is the thing likely to benefit, not a reworded refusal
+for this one.
 
 ### What the chains changed in the server
 

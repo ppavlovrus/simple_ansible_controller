@@ -14,9 +14,23 @@ as small as they are.
 Runs are asynchronous. `run_playbook` returns a task id and the playbook keeps
 going in the background:
 
-1. `run_playbook` with the playbook and where to run it
-2. `get_task_status` until the status is no longer `pending` or `running`
-3. `get_task_logs` when it failed, or when the output matters
+1. `syntax_check_playbook` when the playbook was just written or edited. It
+   parses and contacts nothing, so it is cheap and catches a malformed play
+   before anything connects anywhere.
+2. `run_playbook` with `check=true` when the hosts matter and nobody has run
+   this against them before, or when the user asks what *would* change. It
+   contacts the hosts and changes nothing. Add `diff=true` to see the content of
+   the changes.
+3. `run_playbook` for real.
+4. `get_task_status` until the status is no longer `pending` or `running`.
+5. `get_task_logs` when it failed, or when the output matters.
+
+Steps 1 and 2 are not ceremony: a dry run is the only way to answer "what will
+this do" without doing it. Skip them for something you have run before, or when
+the user asked for the change itself.
+
+A finished run reports `check_mode`, so "success" is never ambiguous about
+whether anything was applied.
 
 Do not poll faster than about once a second, and do not fetch the whole log
 first: `get_task_logs` returns the tail by default, which is where the failure
@@ -55,6 +69,10 @@ Two cheap checks worth making when the target is not obviously right:
 `get_task_logs` gives what Ansible printed. Secrets are removed from the output
 before you see it, so a redacted value in a log is expected, not a bug.
 
+While a run is still going, pass the previous answer's `next_line` back as
+`after_line` to get only what has appeared since. Re-reading the same tail every
+few seconds is how a context window fills up for nothing.
+
 There is no restart: to run the same thing again, call `run_playbook` again. That
 creates a new run, and the old one keeps its history.
 
@@ -70,8 +88,11 @@ and cancel each.
 ## Storing playbooks
 
 `save_playbook` keeps a playbook under a name so later runs can reference it, and
-validates that it is a well-formed playbook. It is the only structural check
-available — there is no separate syntax checker.
+rejects text that is not a playbook. That check is shallow;
+`syntax_check_playbook` runs Ansible's own parser and catches more.
+
+`playbook_name` always refers to something already stored. It is not a label for
+text you are passing: to store text under a name, call `save_playbook` first.
 
 Storing a new version does not affect runs already made: each run keeps its own
 copy of what it executed, which is what lets you compare two runs of the same
@@ -95,7 +116,9 @@ Never put a credential in `config`. Name the environment variable instead —
 Asking for any of these means telling the user the server cannot, rather than
 reaching for the nearest tool:
 
-- generate or lint a playbook
+- generate a playbook, or lint it for style
+- judge whether a playbook is a good idea (`syntax_check_playbook` says whether
+  it parses, nothing more)
 - restart, retry or resume a run
 - schedule anything for later
 - tell two callers apart in its audit log

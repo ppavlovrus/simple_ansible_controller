@@ -11,11 +11,13 @@ from ansible_mcp.server.errors import UsageError, confirmed, found, require
 from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import (
     DELETE,
+    MAX_CHECK_OUTPUT_LINES,
     MAX_PLAYBOOKS_PER_CALL,
     PLAYBOOK_PREVIEW_LINES,
     READ,
     WRITE,
     Services,
+    resolve_playbook,
 )
 
 if TYPE_CHECKING:
@@ -41,10 +43,10 @@ def register(server: MCPServer, services: Services) -> None:
         executed.
 
         The content is checked for being a well-formed playbook (valid YAML, a
-        list of plays) and a malformed one is refused, so this doubles as the
-        only structural check available: there is no separate syntax-check tool.
-        It is not checked for being a good idea, though: nothing here judges what
-        a playbook does.
+        list of plays) and a malformed one is refused. That check is shallow:
+        syntax_check_playbook runs Ansible's own --syntax-check and catches things this
+        does not, so reach for it when a playbook is about to be run. Neither
+        judges whether the playbook is a good idea.
 
         Args:
             name: how the playbook will be addressed later.
@@ -145,6 +147,47 @@ def register(server: MCPServer, services: Services) -> None:
                 "truncated": truncated,
                 "content": content,
                 "hint": "call again with full=true for the whole playbook" if truncated else None,
+            },
+        )
+
+    @server.tool(annotations=READ)
+    @audited
+    async def syntax_check_playbook(playbook: Any = None, playbook_name: str | None = None) -> str:
+        """Parse a playbook and report whether it is valid YAML and valid Ansible.
+
+        Reads the text; contacts nothing. Catches broken YAML, a malformed play
+        or an unknown top-level key, by running Ansible's own --syntax-check. No
+        task is recorded, because nothing was run.
+
+        This answers "is this playbook well formed", and nothing else. Two
+        questions it does NOT answer:
+
+        - "what would this do to the hosts" -- that is run_playbook with
+          check=true, which connects to them and reports what would change.
+        - "is this playbook a good idea" -- nobody here judges that.
+
+        Args:
+            playbook: the playbook, as YAML text or as the parsed list of plays.
+            playbook_name: name of a stored playbook to check instead.
+
+        Returns:
+            A JSON object with ok, and the output Ansible produced when it is
+            false. The offending line is in that output.
+        """
+        content = await resolve_playbook(services, playbook, playbook_name)
+        result = await services.manager.syntax_check(content)
+        output = result.output
+        lines = output.splitlines()
+        truncated = len(lines) > MAX_CHECK_OUTPUT_LINES
+        if truncated:
+            output = "\n".join(lines[:MAX_CHECK_OUTPUT_LINES])
+
+        return json.dumps(
+            {
+                "ok": result.ok,
+                "playbook_name": playbook_name,
+                "truncated": truncated,
+                "output": output,
             },
         )
 

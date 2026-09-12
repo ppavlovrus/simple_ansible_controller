@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Integer, String, Text, TypeDecorator
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String, Text, TypeDecorator
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -107,6 +107,10 @@ class Task(Base):
         tags: Ansible tags the run was limited to.
         execution_environment: container image the run happens in, when isolation
             is enabled (ADR-0008). ``None`` means the run uses the host.
+        check_mode: whether the run was a dry run (``--check``): it connected to
+            the hosts and reported what would change without changing it.
+        diff_mode: whether the run showed the differences it would make
+            (``--diff``).
         status: current lifecycle status.
         exit_code: process exit code once the run has finished.
         error_message: why the run failed, for failures that have no exit code.
@@ -124,6 +128,8 @@ class Task(Base):
     variables: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     execution_environment: Mapped[str | None] = mapped_column(String(512), default=None)
+    check_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    diff_mode: Mapped[bool] = mapped_column(Boolean, default=False)
 
     status: Mapped[TaskStatus] = mapped_column(
         Enum(

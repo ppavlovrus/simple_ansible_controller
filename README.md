@@ -63,9 +63,10 @@ For a host installation, see [packaging](packaging/README.md).
 
 | Tool | What it does |
 |---|---|
-| `run_playbook` | Starts a run and returns a task id; the run continues in the background |
+| `run_playbook` | Starts a run and returns a task id; the run continues in the background. `check=true` is a dry run: it contacts the hosts and changes nothing |
+| `syntax_check_playbook` | Parses a playbook and says whether it is valid, contacting nothing |
 | `get_task_status` | pending, running, success, failed or cancelled, with timestamps and exit code |
-| `get_task_logs` | What Ansible printed, last lines first by default, secrets removed |
+| `get_task_logs` | What Ansible printed, the tail by default, secrets removed; `after_line` pages forward without re-reading |
 | `cancel_task` | Stops a queued or running playbook; needs `confirm=true` |
 | `list_tasks` | Recent runs, newest first, filterable by status |
 | `save_playbook` / `list_playbooks` / `get_playbook` / `delete_playbook` | Playbooks by name, so a run need not carry its text |
@@ -123,7 +124,7 @@ hard way.
 
 ```bash
 poetry install
-poetry run task tests        # 208 tests
+poetry run task tests        # 250 tests
 poetry run task lint         # ruff + ruff format + mypy
 make integration             # playbooks against real hosts over SSH
 poetry run task eval         # can a local model actually drive this?

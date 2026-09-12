@@ -13,7 +13,7 @@ graph TB
     Human[curl / скрипты] -.->|REST, ещё не сделан| Tools
 
     subgraph Interface["server/"]
-        Tools[13 инструментов<br/>задачи, плейбуки, провайдеры]
+        Tools[14 инструментов<br/>задачи, плейбуки, провайдеры]
         Instr[instrumentation<br/>аудит + читаемые отказы]
         Auth[проверка токена<br/>только HTTP]
     end
@@ -61,7 +61,7 @@ graph TB
 |---|---|
 | `app.py` | Собирает сервер, сервисы и lifespan; отказывается от небезопасной публикации |
 | `tools/tasks.py` | `run_playbook`, `get_task_status`, `get_task_logs`, `cancel_task`, `list_tasks` |
-| `tools/playbooks.py` | `save_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
+| `tools/playbooks.py` | `save_playbook`, `syntax_check_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
 | `tools/providers.py` | `add_provider`, `list_providers`, `get_inventory`, `delete_provider` |
 | `instrumentation.py` | Одна обёртка на инструмент: пишет аудит, превращает сбой в одну фразу |
 | `errors.py` | Как инструмент отказывает: `require`, `found`, `confirmed` |

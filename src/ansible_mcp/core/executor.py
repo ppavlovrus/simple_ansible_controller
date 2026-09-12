@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ansible_runner
@@ -23,7 +25,7 @@ import ansible_runner
 from ansible_mcp.db import TaskStatus
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    pass
 
 # ansible-runner reports its own vocabulary; map it onto ours. Anything absent
 # from this table is treated as a failure, which is the safe direction.
@@ -74,6 +76,16 @@ class RunRequest:
     inventory: str
     variables: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    check: bool = False
+    diff: bool = False
+
+
+@dataclass(frozen=True)
+class SyntaxCheckResult:
+    """What ``ansible-playbook --syntax-check`` said about a playbook."""
+
+    ok: bool
+    output: str
 
 
 @dataclass(frozen=True)
@@ -130,6 +142,21 @@ class Executor:
         if tail is None:
             return path.read_text(errors="replace")
         return _read_last_lines(path, tail)
+
+    def count_lines(self, task_id: str) -> int:
+        """Return how many lines the run has written.
+
+        Counted by scanning for newlines in blocks rather than by splitting the
+        text, so following a long log does not mean holding it in memory.
+        """
+        path = self.stdout_path(task_id)
+        if not path.exists():
+            return 0
+        lines = 0
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 16):
+                lines += chunk.count(b"\n")
+        return lines
 
     def prepare(self, request: RunRequest) -> Path:
         """Lay out the run directory that ``ansible-runner`` expects.
@@ -190,6 +217,44 @@ class Executor:
         shutil.rmtree(run_dir / "project", ignore_errors=True)
         shutil.rmtree(run_dir / "inventory", ignore_errors=True)
 
+    def syntax_check(self, playbook: str) -> SyntaxCheckResult:
+        """Parse a playbook without connecting to anything.
+
+        Runs ``ansible-playbook --syntax-check`` in a throwaway directory, so
+        nothing is recorded as a task: this answers a question rather than doing
+        work. The inventory is a literal ``localhost,`` because a syntax check
+        never opens a connection.
+
+        Args:
+            playbook: the playbook text.
+
+        Returns:
+            Whether it parsed, and what ansible said if it did not.
+        """
+        with tempfile.TemporaryDirectory(prefix="ansible-mcp-check-") as directory:
+            root = Path(directory)
+            (root / "project").mkdir()
+            (root / "project" / _PLAYBOOK_FILENAME).write_text(playbook)
+
+            try:
+                runner = ansible_runner.run(
+                    private_data_dir=str(root),
+                    playbook=_PLAYBOOK_FILENAME,
+                    inventory="localhost,",
+                    ident="check",
+                    quiet=True,
+                    cmdline="--syntax-check",
+                )
+            except Exception as error:
+                return SyntaxCheckResult(ok=False, output=f"{type(error).__name__}: {error}")
+
+            output = (root / "artifacts" / "check" / "stdout").read_text(errors="replace")
+            # The temporary path is an implementation detail and means nothing to
+            # the caller, who sent text rather than a file.
+            output = output.replace(str(root / "project" / _PLAYBOOK_FILENAME), "the playbook")
+            output = output.replace(str(root), "")
+            return SyntaxCheckResult(ok=runner.rc == 0, output=output.strip())
+
     def _run_blocking(
         self,
         request: RunRequest,
@@ -198,6 +263,12 @@ class Executor:
     ) -> RunResult:
         """Call ansible-runner on the current thread and translate its result."""
         should_cancel = (lambda: cancellation.is_cancelled) if cancellation else None
+        # --diff on its own is noise; --check on its own is the dry run.
+        flags = " ".join(
+            flag
+            for flag, wanted in (("--check", request.check), ("--diff", request.diff))
+            if wanted
+        )
 
         try:
             runner = ansible_runner.run(
@@ -209,6 +280,7 @@ class Executor:
                 ident=request.task_id,
                 cancel_callback=should_cancel,
                 quiet=True,
+                cmdline=flags or None,
                 # Halves what a successful run leaves on disk and keeps the
                 # structured event data for the runs where it is worth reading.
                 # stdout, which is what get_task_logs returns, is unaffected.

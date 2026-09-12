@@ -24,6 +24,7 @@ it is small, and each "no" below is load-bearing.
 | [0011](0011-provider-file-access-is-confined.md) | A provider reads inventory files only from allowed directories | Accepted | 2026-09-12 |
 | [0012](0012-static-bearer-token-for-http.md) | A static bearer token guards the HTTP endpoint | Accepted | 2026-09-12 |
 | [0013](0013-accept-equivalent-argument-shapes.md) | Accept equivalent argument shapes, refuse ambiguous ones | Accepted | 2026-09-12 |
+| [0014](0014-check-mode-is-a-mode-not-a-judgement.md) | Dry run and syntax check are executor modes, not judgement | Accepted | 2026-09-12 |
 
 Records 0002 to 0008 state decisions taken in the concept and the roadmap before
 any of the target code existed; 0009 describes what the repository already does.
@@ -31,5 +32,6 @@ ADR-0007 is now fully realized: the confirm gate ships with the tools and
 ADR-0012 verifies callers. ADR-0010 is kept as the record of what the server did
 before verification existed.
 
-ADR-0013 came out of measurement rather than design: the eval harness showed a
-model failing three of four multi-step jobs on argument shape alone.
+ADR-0013 and ADR-0014 came out of measurement rather than design: the eval
+harness showed a model failing three of four multi-step jobs on argument shape
+alone, and failing the "check the syntax" scenario because no such tool existed.

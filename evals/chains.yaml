@@ -96,3 +96,26 @@
   require: [run_playbook, cancel_task]
   expect:
     tasks_cancelled: 1
+
+- id: check-then-run
+  language: en
+  max_steps: 7
+  task: |
+    First make sure this playbook is syntactically valid, and only if it is,
+    run it against the inventory below.
+
+    Playbook:
+    - hosts: all
+      gather_facts: false
+      tasks:
+        - name: Say hello
+          ansible.builtin.debug:
+            msg: "hello after a check"
+
+    Inventory:
+    [all]
+    testhost ansible_connection=local
+  allow: [syntax_check_playbook, run_playbook, get_task_status]
+  require: [syntax_check_playbook, run_playbook]
+  expect:
+    tasks_succeeded: 1

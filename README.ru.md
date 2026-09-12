@@ -64,9 +64,10 @@ docker run -p 8080:8080 -v ./data:/data \
 
 | Инструмент | Что делает |
 |---|---|
-| `run_playbook` | Запускает прогон и возвращает идентификатор; прогон продолжается в фоне |
+| `run_playbook` | Запускает прогон и возвращает идентификатор; прогон идёт в фоне. `check=true` — сухой прогон: хосты опрашиваются, но ничего не меняется |
+| `syntax_check_playbook` | Разбирает плейбук и говорит, валиден ли он, ни к чему не подключаясь |
 | `get_task_status` | pending, running, success, failed или cancelled, с временем и кодом выхода |
-| `get_task_logs` | Что напечатал Ansible, по умолчанию последние строки, секреты вырезаны |
+| `get_task_logs` | Что напечатал Ansible, по умолчанию хвост, секреты вырезаны; `after_line` листает вперёд без перечитывания |
 | `cancel_task` | Останавливает стоящий в очереди или идущий плейбук; нужен `confirm=true` |
 | `list_tasks` | Недавние прогоны, новые первыми, с фильтром по статусу |
 | `save_playbook` / `list_playbooks` / `get_playbook` / `delete_playbook` | Плейбуки по имени, чтобы прогон не тащил текст |
@@ -125,7 +126,7 @@ docker run -p 8080:8080 -v ./data:/data \
 
 ```bash
 poetry install
-poetry run task tests        # 208 тестов
+poetry run task tests        # 250 тестов
 poetry run task lint         # ruff + ruff format + mypy
 make integration             # плейбуки на реальных хостах по SSH
 poetry run task eval         # справляется ли локальная модель с этим сервером

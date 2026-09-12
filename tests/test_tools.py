@@ -59,6 +59,7 @@ async def test_every_tool_is_registered(application):
         "cancel_task",
         "list_tasks",
         "save_playbook",
+        "syntax_check_playbook",
         "list_playbooks",
         "get_playbook",
         "delete_playbook",
@@ -207,6 +208,10 @@ async def test_responses_carry_only_the_fields_an_agent_needs(
         "finished_at",
         "exit_code",
         "error_message",
+        # A finished run must say whether it was a dry run: "success" otherwise
+        # reads as "applied".
+        "check_mode",
+        "diff_mode",
     }
 
 

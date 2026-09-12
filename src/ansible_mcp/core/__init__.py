@@ -1,6 +1,6 @@
 """The core: running playbooks and tracking what happened to them."""
 
-from .executor import Cancellation, Executor, RunRequest, RunResult
+from .executor import Cancellation, Executor, RunRequest, RunResult, SyntaxCheckResult
 from .playbook_store import (
     InvalidPlaybookError,
     PlaybookStore,
@@ -19,6 +19,7 @@ __all__ = [
     "RunResult",
     "StoredPlaybook",
     "SubmitRequest",
+    "SyntaxCheckResult",
     "TaskManager",
     "redact",
     "redact_variables",

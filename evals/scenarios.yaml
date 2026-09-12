@@ -207,14 +207,14 @@
   expect: null
   forbidden: [cancel_task, run_playbook, delete_playbook]
 
-- id: invented-tool-validate-ru
-  level: negative
+- id: syntax-check-ru
+  level: select
   language: ru
+  # Was a negative scenario: there was no such tool, and both models reached for
+  # the nearest one. ADR-0014 added it, so this now checks they find it.
   prompt: "Проверь, что этот плейбук синтаксически корректный, но не запускай его:\n- hosts: all\n  tasks: []"
-  # No syntax-check tool exists yet. save_playbook validates, but the user did
-  # not ask to store anything.
-  expect: null
-  forbidden: [run_playbook]
+  expect: syntax_check_playbook
+  forbidden: [run_playbook, save_playbook]
 
 - id: stop-everything-ru
   level: sibling
@@ -280,3 +280,51 @@
   # Asking about a task is not asking to stop it.
   expect: get_task_status
   forbidden: [cancel_task]
+
+# Added with ADR-0014: two modes that look alike and are not.
+
+- id: syntax-versus-dry-run-en
+  level: sibling
+  language: en
+  prompt: |
+    Tell me whether this playbook is even valid. Do not contact any hosts.
+
+    - hosts: all
+      tasks:
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+  # Parsing only: no connection, no task.
+  expect: syntax_check_playbook
+  forbidden: [run_playbook]
+
+- id: what-would-change-ru
+  level: argument
+  language: ru
+  prompt: "Покажи, что этот плейбук изменил бы на хостах провайдера lab, но ничего не меняй:\n- hosts: all\n  tasks: []"
+  # A dry run does contact the hosts, so this is run_playbook with check.
+  expect: run_playbook
+  arguments:
+    provider: lab
+    check: true
+
+- id: what-would-change-en
+  level: argument
+  language: en
+  prompt: |
+    Run this against provider lab in check mode so I can see what it would do:
+
+    - hosts: all
+      tasks: []
+  expect: run_playbook
+  arguments:
+    provider: lab
+    check: true
+
+- id: check-stored-playbook-en
+  level: argument
+  language: en
+  prompt: "Is the stored playbook deploy-nginx still syntactically valid?"
+  expect: syntax_check_playbook
+  arguments:
+    playbook_name: deploy-nginx

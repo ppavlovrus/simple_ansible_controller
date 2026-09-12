@@ -13,7 +13,7 @@ graph TB
     Human[curl / scripts] -.->|REST, not built yet| Tools
 
     subgraph Interface["server/"]
-        Tools[13 tools<br/>tasks, playbooks, providers]
+        Tools[14 tools<br/>tasks, playbooks, providers]
         Instr[instrumentation<br/>audit + readable failures]
         Auth[bearer check<br/>HTTP only]
     end
@@ -61,7 +61,7 @@ Three layers, one direction of dependency: `server/` knows about `core/` and
 |---|---|
 | `app.py` | Builds the server, the services and the lifespan; refuses an unsafe exposure |
 | `tools/tasks.py` | `run_playbook`, `get_task_status`, `get_task_logs`, `cancel_task`, `list_tasks` |
-| `tools/playbooks.py` | `save_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
+| `tools/playbooks.py` | `save_playbook`, `syntax_check_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
 | `tools/providers.py` | `add_provider`, `list_providers`, `get_inventory`, `delete_provider` |
 | `instrumentation.py` | One wrapper per tool: writes the audit entry, turns a failure into a sentence |
 | `errors.py` | How a tool refuses: `require`, `found`, `confirmed` |
