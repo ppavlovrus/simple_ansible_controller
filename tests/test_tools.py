@@ -49,7 +49,7 @@ async def run_local(app, playbook, inventory, **extra):
     return payload["task_id"]
 
 
-async def test_the_five_tools_are_registered(application):
+async def test_every_tool_is_registered(application):
     tools = await application.server.list_tools()
 
     assert {tool.name for tool in tools} == {
@@ -58,6 +58,14 @@ async def test_the_five_tools_are_registered(application):
         "get_task_logs",
         "cancel_task",
         "list_tasks",
+        "save_playbook",
+        "list_playbooks",
+        "get_playbook",
+        "delete_playbook",
+        "add_provider",
+        "list_providers",
+        "get_inventory",
+        "delete_provider",
     }
 
 
@@ -95,20 +103,17 @@ async def test_running_a_playbook_through_to_its_logs(application, local_playboo
     assert logs["returned_lines"] > 0
 
 
-async def test_variables_and_name_are_passed_through(application, local_playbook, local_inventory):
+async def test_variables_are_passed_through(application, local_playbook, local_inventory):
     task_id = await run_local(
         application,
         local_playbook,
         local_inventory,
         variables={"greeting": "from-the-tool"},
-        playbook_name="greeter",
     )
     await application.manager.wait(task_id, timeout=60)
 
-    status = await call(application, "get_task_status", task_id=task_id)
     logs = await call(application, "get_task_logs", task_id=task_id)
 
-    assert status["playbook_name"] == "greeter"
     assert "greeting=from-the-tool" in logs["output"]
 
 
@@ -230,3 +235,158 @@ def test_serving_http_beyond_loopback_is_refused(settings):
 )
 def test_safe_configurations_are_allowed(settings):
     ensure_safe_to_expose(settings)
+
+
+async def test_storing_a_playbook_and_running_it_by_name(
+    application,
+    local_playbook,
+    local_inventory,
+):
+    saved = await call(application, "save_playbook", name="greeter", content=local_playbook)
+    assert saved["name"] == "greeter"
+
+    started = await call(
+        application,
+        "run_playbook",
+        playbook_name="greeter",
+        inventory=local_inventory,
+    )
+    task = await application.manager.wait(started["task_id"], timeout=60)
+
+    assert task.status is TaskStatus.SUCCESS
+    assert task.playbook_name == "greeter"
+    assert task.playbook_snapshot == local_playbook
+
+
+async def test_running_through_a_configured_provider(application, local_playbook, local_inventory):
+    await call(
+        application,
+        "add_provider",
+        name="lab",
+        plugin_type="static",
+        config={"inventory": local_inventory},
+    )
+
+    started = await call(application, "run_playbook", playbook=local_playbook, provider="lab")
+    task = await application.manager.wait(started["task_id"], timeout=60)
+
+    assert task.status is TaskStatus.SUCCESS
+    assert task.provider_name == "lab"
+    assert task.inventory_snapshot == local_inventory
+
+
+async def test_a_run_needs_exactly_one_source_of_each(application, local_playbook, local_inventory):
+    both_playbooks = await call(
+        application,
+        "run_playbook",
+        playbook=local_playbook,
+        playbook_name="greeter",
+        inventory=local_inventory,
+    )
+    neither_inventory = await call(application, "run_playbook", playbook=local_playbook)
+
+    assert "exactly one of playbook" in both_playbooks["error"]
+    assert "exactly one of inventory" in neither_inventory["error"]
+
+
+async def test_running_an_unknown_stored_playbook_says_so(application, local_inventory):
+    payload = await call(
+        application,
+        "run_playbook",
+        playbook_name="never-saved",
+        inventory=local_inventory,
+    )
+
+    assert "no playbook stored" in payload["error"]
+
+
+async def test_running_through_an_unknown_provider_says_so(application, local_playbook):
+    payload = await call(application, "run_playbook", playbook=local_playbook, provider="nope")
+
+    assert "no provider named" in payload["error"]
+
+
+async def test_saving_a_broken_playbook_is_refused(application):
+    payload = await call(application, "save_playbook", name="broken", content="not a playbook")
+
+    assert "list of plays" in payload["error"]
+
+
+async def test_a_long_playbook_is_previewed_not_dumped(application):
+    long_playbook = "---\n- name: Many tasks\n  hosts: all\n  tasks:\n" + "".join(
+        f"    - name: Task {index}\n      ansible.builtin.debug:\n        msg: {index}\n"
+        for index in range(50)
+    )
+    await call(application, "save_playbook", name="long", content=long_playbook)
+
+    preview = await call(application, "get_playbook", name="long")
+    whole = await call(application, "get_playbook", name="long", full=True)
+
+    assert preview["truncated"] is True
+    assert len(preview["content"]) < len(whole["content"])
+    assert preview["hint"]
+    assert whole["truncated"] is False
+    assert whole["content"] == long_playbook
+
+
+async def test_listing_playbooks_reports_sizes_not_contents(application, local_playbook):
+    await call(application, "save_playbook", name="one", content=local_playbook, tags=["demo"])
+
+    listed = await call(application, "list_playbooks")
+
+    assert listed["returned"] == 1
+    assert listed["playbooks"][0]["tags"] == ["demo"]
+    assert listed["playbooks"][0]["lines"] > 0
+    assert "content" not in listed["playbooks"][0]
+
+
+async def test_deleting_a_playbook_requires_confirmation(application, local_playbook):
+    await call(application, "save_playbook", name="doomed", content=local_playbook)
+
+    refused = await call(application, "delete_playbook", name="doomed")
+    assert "not confirmed" in refused["error"]
+
+    accepted = await call(application, "delete_playbook", name="doomed", confirm=True)
+    assert accepted["deleted"] is True
+
+
+async def test_providers_are_listed_with_the_installed_plugin_types(application, local_inventory):
+    await call(
+        application,
+        "add_provider",
+        name="lab",
+        plugin_type="static",
+        config={"inventory": local_inventory},
+    )
+
+    listed = await call(application, "list_providers")
+
+    assert listed["configured"][0]["name"] == "lab"
+    assert listed["configured"][0]["usable"] is True
+    assert "static" in {plugin["plugin_type"] for plugin in listed["available_plugin_types"]}
+
+
+async def test_asking_a_provider_what_it_resolves_to(application, local_inventory):
+    await call(
+        application,
+        "add_provider",
+        name="lab",
+        plugin_type="static",
+        config={"inventory": local_inventory},
+    )
+
+    resolved = await call(application, "get_inventory", provider="lab")
+
+    assert "testhost" in resolved["inventory"]
+
+
+async def test_a_credential_in_a_provider_configuration_is_refused(application, local_inventory):
+    payload = await call(
+        application,
+        "add_provider",
+        name="cloud",
+        plugin_type="static",
+        config={"inventory": local_inventory, "password": "hunter2"},
+    )
+
+    assert "credentials are read from the environment" in payload["error"]

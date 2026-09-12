@@ -1,12 +1,9 @@
-"""The tools an agent drives this controller with.
+"""Tools for running playbooks and following the runs.
 
-Five verbs cover the whole loop: start a run, see how it is doing, read what it
-printed, stop it, and look at what ran recently.
-
-Two rules shape every response. They are JSON with the fields an agent needs to
-decide what to do next, not a dump of the row; and anything that could be
-unbounded (task lists, log output) is capped by default, because filling the
-agent's context is a real failure mode (ADR-0002).
+Two rules shape every response. It is JSON with the fields an agent needs to
+decide what to do next, not a dump of the row; and anything unbounded (task
+lists, log output) is capped, because filling the agent's context is a failure
+mode of its own (ADR-0002).
 """
 
 from __future__ import annotations
@@ -14,24 +11,22 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import ToolAnnotations
-
 from ansible_mcp.core import SubmitRequest
 from ansible_mcp.db import Task, TaskStatus
+from ansible_mcp.providers import ProviderError
 from ansible_mcp.server.errors import UsageError, confirmed, found, require, tool_errors
+from ansible_mcp.server.tools._shared import (
+    DEFAULT_LOG_LINES,
+    EXECUTE,
+    MAX_LOG_LINES_PER_CALL,
+    MAX_TASKS_PER_CALL,
+    READ,
+    STOP,
+    Services,
+)
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver import MCPServer
-
-    from ansible_mcp.core import TaskManager
-
-READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
-EXECUTE = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True)
-STOP = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False)
-
-MAX_TASKS_PER_CALL = 100
-MAX_LOG_LINES_PER_CALL = 2000
-DEFAULT_LOG_LINES = 100
 
 
 def _summarize(task: Task) -> dict[str, Any]:
@@ -49,46 +44,77 @@ def _summarize(task: Task) -> dict[str, Any]:
     }
 
 
-def register(server: MCPServer, manager: TaskManager) -> None:
-    """Register every tool on the given server."""
+def register(server: MCPServer, services: Services) -> None:
+    """Register the task tools."""
 
     @server.tool(annotations=EXECUTE)
     @tool_errors
     async def run_playbook(
-        playbook: str,
-        inventory: str,
+        playbook: str | None = None,
+        playbook_name: str | None = None,
+        inventory: str | None = None,
+        provider: str | None = None,
         variables: dict[str, Any] | None = None,
         tags: list[str] | None = None,
-        playbook_name: str | None = None,
     ) -> str:
-        """Start an Ansible playbook against an inventory and return immediately.
+        """Run an Ansible playbook against an inventory and return immediately.
 
-        The run happens in the background: this call hands back a task id, and the
-        run's progress is followed with get_task_status and get_task_logs. Use this
-        whenever something should actually be executed on hosts.
+        Say what to run, either inline with `playbook` or by naming one already
+        stored with `playbook_name`. Say where to run it, either inline with
+        `inventory` or by naming a configured provider with `provider`, which
+        resolves the inventory when the run starts.
 
-        The playbook and the inventory are stored with the task exactly as given,
-        so the run can be examined later even if either is edited afterwards.
+        The run happens in the background: this returns a task id, and the run is
+        followed with get_task_status and get_task_logs. Both the playbook and the
+        resolved inventory are stored with the task exactly as used, so the run
+        can be examined later even if either changes.
 
         Args:
             playbook: the playbook itself, as YAML text.
+            playbook_name: name of a stored playbook to run instead.
             inventory: the inventory to run against, in INI or YAML format.
+            provider: name of a configured provider to take the inventory from.
             variables: extra variables, the equivalent of --extra-vars.
             tags: run only tasks carrying these tags.
-            playbook_name: a name to remember this run by, for later listing.
 
         Returns:
             A JSON object with task_id and the initial status. The run is not
             finished when this returns.
         """
-        require(bool(playbook.strip()), "playbook is empty: pass the playbook YAML as text")
-        require(bool(inventory.strip()), "inventory is empty: pass an INI or YAML inventory")
+        require(
+            bool(playbook) != bool(playbook_name),
+            "pass exactly one of playbook (the YAML) or playbook_name (a stored playbook)",
+        )
+        require(
+            bool(inventory) != bool(provider),
+            "pass exactly one of inventory (the text) or provider (a configured provider)",
+        )
 
-        task_id = await manager.submit(
+        if playbook_name:
+            stored = found(
+                await services.playbooks.get(playbook_name),
+                f"no playbook stored as {playbook_name!r}; list_playbooks shows what there is",
+            )
+            content = stored.content
+        else:
+            content = playbook or ""
+            require(bool(content.strip()), "playbook is empty: pass the playbook YAML as text")
+
+        if provider:
+            try:
+                resolved = await services.providers.inventory(provider)
+            except ProviderError as error:
+                raise UsageError(str(error)) from error
+        else:
+            resolved = inventory or ""
+            require(bool(resolved.strip()), "inventory is empty: pass an INI or YAML inventory")
+
+        task_id = await services.manager.submit(
             SubmitRequest(
-                playbook=playbook,
-                inventory=inventory,
+                playbook=content,
+                inventory=resolved,
                 playbook_name=playbook_name,
+                provider_name=provider,
                 variables=variables or {},
                 tags=tags or [],
             ),
@@ -117,7 +143,7 @@ def register(server: MCPServer, manager: TaskManager) -> None:
             A JSON object with the status, timestamps, exit code and, for
             failures, the error message.
         """
-        task = found(await manager.get(task_id), f"no task with id {task_id!r}")
+        task = found(await services.manager.get(task_id), f"no task with id {task_id!r}")
         return json.dumps(_summarize(task))
 
     @server.tool(annotations=READ)
@@ -141,15 +167,15 @@ def register(server: MCPServer, manager: TaskManager) -> None:
             tail <= MAX_LOG_LINES_PER_CALL,
             f"tail is capped at {MAX_LOG_LINES_PER_CALL} lines per call",
         )
-        found(await manager.get(task_id), f"no task with id {task_id!r}")
+        found(await services.manager.get(task_id), f"no task with id {task_id!r}")
 
-        output = manager.read_output(task_id, tail)
+        output = await services.manager.read_output(task_id, tail)
         lines = output.splitlines()
         return json.dumps(
             {
                 "task_id": task_id,
                 "returned_lines": len(lines),
-                "truncated": len(lines) >= tail,
+                "may_have_more": len(lines) >= tail,
                 "output": output,
             },
         )
@@ -173,9 +199,8 @@ def register(server: MCPServer, manager: TaskManager) -> None:
         """
         confirmed(confirm, f"cancelling task {task_id}")
 
-        task = found(await manager.get(task_id), f"no task with id {task_id!r}")
-
-        cancelled = await manager.cancel(task_id)
+        task = found(await services.manager.get(task_id), f"no task with id {task_id!r}")
+        cancelled = await services.manager.cancel(task_id)
         return json.dumps(
             {
                 "task_id": task_id,
@@ -214,7 +239,7 @@ def register(server: MCPServer, manager: TaskManager) -> None:
                 message = f"unknown status {status!r}: expected one of {known}"
                 raise UsageError(message) from None
 
-        tasks = await manager.list(status=wanted, limit=limit)
+        tasks = await services.manager.list(status=wanted, limit=limit)
         return json.dumps(
             {
                 "returned": len(tasks),

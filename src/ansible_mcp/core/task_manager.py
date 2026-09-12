@@ -163,9 +163,14 @@ class TaskManager:
         async with self._session_factory() as session:
             return list(await session.scalars(query))
 
-    def read_output(self, task_id: str, tail: int | None = None) -> str:
-        """Return what the run has written so far."""
-        return self._executor.read_output(task_id, tail)
+    async def read_output(self, task_id: str, tail: int | None = None) -> str:
+        """Return what the run has written so far.
+
+        The read happens on a worker thread: Ansible output reaches tens of
+        megabytes, and reading that on the event loop would stall every other
+        call while one agent fetches logs.
+        """
+        return await asyncio.to_thread(self._executor.read_output, task_id, tail)
 
     async def cancel(self, task_id: str) -> bool:
         """Ask a task to stop.

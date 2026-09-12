@@ -34,6 +34,10 @@ class Settings(BaseSettings):
             playbook hold its slot indefinitely.
         transport: ``stdio`` for a locally launched client, ``streamable-http``
             to serve a remote endpoint.
+        extra_inventory_dirs: directories, besides the data dir's own
+            ``inventories``, that a static provider may read inventory files
+            from. Anything outside these is refused, so a provider cannot be
+            pointed at an arbitrary file on the host.
     """
 
     model_config = SettingsConfigDict(env_prefix="ANSIBLE_MCP_", extra="ignore")
@@ -46,6 +50,7 @@ class Settings(BaseSettings):
     max_concurrent_tasks: int = Field(default=4, ge=1)
     run_timeout_seconds: float | None = Field(default=None, gt=0)
     transport: Literal["stdio", "streamable-http"] = "stdio"
+    extra_inventory_dirs: list[Path] = Field(default_factory=list)
 
     @property
     def database_path(self) -> Path:
@@ -61,6 +66,16 @@ class Settings(BaseSettings):
     def tasks_dir(self) -> Path:
         """Directory holding per-task private data and artifacts."""
         return self.data_dir / "tasks"
+
+    @property
+    def inventories_dir(self) -> Path:
+        """Directory inventory files are expected in."""
+        return self.data_dir / "inventories"
+
+    @property
+    def allowed_inventory_dirs(self) -> tuple[Path, ...]:
+        """Every directory a provider may read an inventory file from."""
+        return (self.inventories_dir, *self.extra_inventory_dirs)
 
 
 @lru_cache

@@ -16,9 +16,10 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.mcpserver import MCPServer
 
 from ansible_mcp import __version__
-from ansible_mcp.core import Executor, TaskManager
+from ansible_mcp.core import Executor, PlaybookStore, TaskManager
 from ansible_mcp.db import create_engine, create_schema, create_session_factory
-from ansible_mcp.server.tools import register
+from ansible_mcp.providers import ProviderRegistry, Providers
+from ansible_mcp.server.tools import Services, register_all
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -36,8 +37,13 @@ A minimal Ansible controller. Give it a playbook and an inventory and it runs
 them, keeping the history, the logs and the artifacts of every run.
 
 Runs are asynchronous: run_playbook returns a task id immediately, then
-get_task_status and get_task_logs follow it. Nothing here writes playbooks or
-decides what to run: that is the calling agent's job.
+get_task_status and get_task_logs follow it.
+
+Playbooks can be stored by name and inventories can come from configured
+providers, so a repeated run does not carry its text every time.
+
+Nothing here writes playbooks or decides what to run: this controller executes,
+the calling agent decides.
 """
 
 
@@ -48,6 +54,8 @@ class Application:
     server: MCPServer
     manager: TaskManager
     engine: AsyncEngine
+    playbooks: PlaybookStore
+    providers: Providers
 
 
 def build_application(settings: Settings) -> Application:
@@ -60,11 +68,17 @@ def build_application(settings: Settings) -> Application:
         The application, ready to be run. Nothing has touched the disk yet.
     """
     engine = create_engine(settings.database_path)
+    session_factory = create_session_factory(engine)
     manager = TaskManager(
-        create_session_factory(engine),
+        session_factory,
         Executor(settings.tasks_dir),
         max_concurrent_tasks=settings.max_concurrent_tasks,
         run_timeout_seconds=settings.run_timeout_seconds,
+    )
+    playbooks = PlaybookStore(session_factory)
+    providers = Providers(
+        session_factory,
+        ProviderRegistry(settings.allowed_inventory_dirs),
     )
 
     @asynccontextmanager
@@ -84,8 +98,14 @@ def build_application(settings: Settings) -> Application:
         instructions=INSTRUCTIONS,
         lifespan=lifespan,
     )
-    register(server, manager)
-    return Application(server=server, manager=manager, engine=engine)
+    register_all(server, Services(manager=manager, playbooks=playbooks, providers=providers))
+    return Application(
+        server=server,
+        manager=manager,
+        engine=engine,
+        playbooks=playbooks,
+        providers=providers,
+    )
 
 
 def ensure_safe_to_expose(settings: Settings) -> None:

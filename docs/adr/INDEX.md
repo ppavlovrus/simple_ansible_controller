@@ -21,6 +21,7 @@ it is small, and each "no" below is load-bearing.
 | [0008](0008-execution-environments.md) | Run in a given container image, but do not manage images | Accepted | 2026-09-12 |
 | [0009](0009-toolchain-and-layout.md) | Poetry, src-layout, and one CI gate shared with developers | Accepted | 2026-09-12 |
 | [0010](0010-http-restricted-to-loopback-until-auth.md) | HTTP stays on loopback until callers are verified | Accepted | 2026-09-12 |
+| [0011](0011-provider-file-access-is-confined.md) | A provider reads inventory files only from allowed directories | Accepted | 2026-09-12 |
 
 Records 0002 to 0008 state decisions taken in the concept and the roadmap before
 any of the target code existed; 0009 describes what the repository already does.

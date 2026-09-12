@@ -62,7 +62,7 @@ async def test_a_submitted_task_runs_and_is_recorded(manager, request_of):
     assert task.started_at is not None
     assert task.finished_at >= task.started_at
     assert task.artifacts_dir
-    assert "executor reached testhost" in manager.read_output(task_id)
+    assert "executor reached testhost" in await manager.read_output(task_id)
 
 
 async def test_the_run_is_snapshotted_on_submission(manager, request_of, local_playbook):
