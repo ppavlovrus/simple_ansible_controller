@@ -1,6 +1,13 @@
-# Test hosts for running playbooks against something real.
-# The application itself runs on the host during development; its image is built
-# separately once there is a server to run.
+# Test hosts for running playbooks against something real, plus an optional
+# containerised controller to reach them from.
+#
+#   docker compose up -d                             # just the hosts, for the test suite
+#   ANSIBLE_MCP_API_KEY=$(openssl rand -hex 32) \
+#     docker compose --profile controller up -d      # and the controller
+#
+# The controller service exists because "how does a key reach the process" is
+# the first thing a real deployment has to answer, and a compose file answers it
+# more reliably than prose. See docs/connecting-hosts.md.
 services:
   ansible_host_1:
     build:
@@ -25,3 +32,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Not started by default: the test suite only needs the hosts above, and this
+  # service refuses to start without an API key (ADR-0012).
+  controller:
+    profiles: [controller]
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # No default on purpose: an unset key should fail loudly here rather than
+      # produce an unauthenticated endpoint.
+      ANSIBLE_MCP_API_KEY: ${ANSIBLE_MCP_API_KEY:?set ANSIBLE_MCP_API_KEY, for example $(openssl rand -hex 32)}
+    volumes:
+      # Read-only, and at the path ssh looks in by default for this user, so an
+      # inventory need not name the key at all. Mode 600 on the host is required:
+      # ssh ignores a key that is group- or world-readable.
+      - ./tests/fixtures/keys/id_rsa:/var/lib/ansible-mcp/.ssh/id_ed25519:ro
+    depends_on:
+      ansible_host_1:
+        condition: service_healthy
+      ansible_host_2:
+        condition: service_healthy

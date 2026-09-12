@@ -143,6 +143,7 @@ Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 | [Concept](docs/concept.md) | The problem, the consumers, the trade-offs |
 | [Architecture](docs/architecture.md) | What the code does now |
 | [Configuration](docs/configuration.md) | Every setting |
+| [Reaching hosts](docs/connecting-hosts.md) | Keys, passwords and host keys, per install method |
 | [Decision log](docs/adr/INDEX.md) | Why the boundaries are where they are |
 | [Packaging](packaging/README.md) | Container and Debian package |
 | [Evals](evals/README.md) | Measuring whether an agent can drive it |

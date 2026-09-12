@@ -7,6 +7,7 @@
 | [Concept](concept.md) | What the project is for: the problem, the consumers, the trade-offs it accepts |
 | [Architecture](architecture.md) | What the code does now, layer by layer |
 | [Configuration](configuration.md) | Every setting, and the two that matter |
+| [Reaching hosts](connecting-hosts.md) | Where a key has to sit for each install method, and why |
 | [Decision log](adr/INDEX.md) | Why the boundaries are where they are, and what was rejected |
 | [Packaging](../packaging/README.md) | Container image and Debian package |
 | [Evals](../evals/README.md) | Measuring whether a model can actually drive this |

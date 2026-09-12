@@ -103,9 +103,23 @@ jobs:
       - name: Run the SSH tests
         run: poetry run pytest tests/test_integration_ssh.py -v
 
-      - name: Show what the hosts logged, if that failed
+      # The documented container path: the server in a container, the key
+      # arriving by mount, the hosts on the compose network. Documentation that
+      # nothing exercises drifts, and this is the first thing a real deployment
+      # has to get right.
+      - name: Start the containerised controller
+        env:
+          ANSIBLE_MCP_API_KEY: ci-controller-secret
+        run: docker compose --profile controller up -d --wait
+
+      - name: Reach the hosts from inside the container
+        env:
+          ANSIBLE_MCP_API_KEY: ci-controller-secret
+        run: poetry run pytest tests/test_integration_container.py -v
+
+      - name: Show what the containers logged, if that failed
         if: failure()
-        run: docker compose logs --tail 50
+        run: docker compose logs --tail 80
 
   image:
     name: Container image

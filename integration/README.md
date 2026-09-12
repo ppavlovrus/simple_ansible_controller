@@ -67,6 +67,14 @@ It exists because tool descriptions answer "what does this tool do" and a skill
 answers "how do I work with this server" — the second does not fit in a
 docstring.
 
+## Reaching the hosts
+
+Connecting a client is half of it; the server then needs credentials for the
+hosts it will manage, and where those have to sit depends on how it was
+installed — the service user's home is not yours. See
+[docs/connecting-hosts.md](../docs/connecting-hosts.md), and
+`docker compose --profile controller up` for a worked example with two SSH hosts.
+
 ## Checking a connection
 
 ```bash
