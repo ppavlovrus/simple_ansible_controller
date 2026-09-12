@@ -1,5 +1,0 @@
-fastapi
-uvicorn
-ansible-runner[ansible]
-sqlalchemy
-pyyaml
