@@ -1,0 +1,9 @@
+---
+# Runs on the control node itself, so tests need no SSH and no container.
+- name: Report that the executor reached a host
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Say hello
+      ansible.builtin.debug:
+        msg: "executor reached {{ inventory_hostname }} with greeting={{ greeting | default('none') }}"

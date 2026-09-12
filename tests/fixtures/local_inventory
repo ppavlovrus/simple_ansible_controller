@@ -1,0 +1,3 @@
+# The control node itself, reached without SSH.
+[all]
+testhost ansible_connection=local

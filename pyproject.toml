@@ -12,6 +12,9 @@ dependencies = [
     "ansible-runner>=2.4",
     "ansible-core>=2.16",
     "sqlalchemy[asyncio]>=2.0",
+    # SQLAlchemy's own marker for greenlet excludes arm64, so its async mode
+    # silently lacks a dependency on Apple Silicon. Ask for it explicitly.
+    "greenlet>=3.0",
     "aiosqlite>=0.20",
     "pydantic-settings>=2.0",
 ]
@@ -26,6 +29,7 @@ pytest-asyncio = "^0.24"
 ruff = "^0.15"
 mypy = "^1.11"
 taskipy = "^1.13"
+pre-commit = "^4.0"
 
 [build-system]
 requires = ["poetry-core>=2.0"]
@@ -46,7 +50,7 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ANN", "D"]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "C90", "SIM", "RUF", "ANN", "D"]
 ignore = [
     "D203",   # conflicts with D211
     "D213",   # conflicts with D212
@@ -55,6 +59,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "ANN"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
