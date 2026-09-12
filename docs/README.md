@@ -4,6 +4,7 @@
 
 | | |
 |---|---|
+| [User guide](user-guide.md) | Install, connect a client, and every capability, in the order you need them |
 | [Concept](concept.md) | What the project is for: the problem, the consumers, the trade-offs it accepts |
 | [Architecture](architecture.md) | What the code does now, layer by layer |
 | [Configuration](configuration.md) | Every setting, and the two that matter |
@@ -17,6 +18,8 @@
 Contributors, human or otherwise, start at [AGENTS.md](../AGENTS.md).
 
 ## Reading order
+
+For using it: the user guide, and nothing else until something surprises you.
 
 For understanding the project: concept, then the decision log, then
 architecture. The concept explains the shape, the decisions explain why the

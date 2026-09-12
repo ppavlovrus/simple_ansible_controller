@@ -27,6 +27,9 @@ Kubernetes. Для пятидесяти хостов такой control plane с
 
 ## Быстрый старт
 
+Ниже версия в три строки; [руководство пользователя](docs/ru/user-guide.md) —
+тот же путь с разбором каждого шага и с тем, что делать, когда не работает.
+
 Самый короткий путь — stdio, когда процесс запускает сам клиент:
 
 ```bash
@@ -51,7 +54,8 @@ poetry run ansible-mcp        # говорит на MCP через stdin/stdout
 Контейнером, с отдачей по HTTP:
 
 ```bash
-docker build -t ansible-mcp .
+docker build -f Containerfile -t ansible-mcp .
+mkdir -p data && sudo chown 1000:1000 data     # образ работает под uid 1000
 docker run -p 8080:8080 -v ./data:/data \
   -e ANSIBLE_MCP_API_KEY="$(openssl rand -hex 32)" ansible-mcp
 ```
@@ -143,6 +147,7 @@ Eval-харнесс здесь не украшение: он читает схе
 
 | | |
 |---|---|
+| [Руководство пользователя](docs/ru/user-guide.md) | Установка, подключение и все возможности |
 | [Концепция](docs/ru/concept.md) | Проблема, потребители, компромиссы |
 | [Архитектура](docs/ru/architecture.md) | Что код делает сейчас |
 | [Конфигурация](docs/ru/configuration.md) | Все настройки |

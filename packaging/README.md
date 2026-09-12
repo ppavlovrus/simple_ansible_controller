@@ -13,7 +13,7 @@ Both were built and exercised, not just written: the numbers above come from
 ## Container
 
 ```bash
-docker build -t ansible-mcp .
+docker build -f Containerfile -t ansible-mcp .
 docker run -p 8080:8080 -v ./data:/data -e ANSIBLE_MCP_API_KEY="$(openssl rand -hex 32)" ansible-mcp
 ```
 

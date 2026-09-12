@@ -1,6 +1,6 @@
 # The whole product in one image: a process, a volume, a port.
 #
-#   docker build -t ansible-mcp .
+#   docker build -f Containerfile -t ansible-mcp .
 #   docker run -p 8080:8080 -v ./data:/data -e ANSIBLE_MCP_API_KEY=... ansible-mcp
 #
 # The key is not optional: the container binds beyond loopback, and the server

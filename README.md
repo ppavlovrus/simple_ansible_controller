@@ -26,6 +26,9 @@ both. See [docs/concept.md](docs/concept.md).
 
 ## Quick start
 
+The three-line version is below; the [user guide](docs/user-guide.md) is the same
+path with every step explained, plus what to do when it does not work.
+
 The fastest path is stdio, where the client launches the process:
 
 ```bash
@@ -50,7 +53,8 @@ In Claude Code, or any MCP client:
 As a container, serving over HTTP:
 
 ```bash
-docker build -t ansible-mcp .
+docker build -f Containerfile -t ansible-mcp .
+mkdir -p data && sudo chown 1000:1000 data     # the image runs as uid 1000
 docker run -p 8080:8080 -v ./data:/data \
   -e ANSIBLE_MCP_API_KEY="$(openssl rand -hex 32)" ansible-mcp
 ```
@@ -141,6 +145,7 @@ Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 
 | | |
 |---|---|
+| [User guide](docs/user-guide.md) | Install, connect, and everything it can do |
 | [Concept](docs/concept.md) | The problem, the consumers, the trade-offs |
 | [Architecture](docs/architecture.md) | What the code does now |
 | [Configuration](docs/configuration.md) | Every setting |
