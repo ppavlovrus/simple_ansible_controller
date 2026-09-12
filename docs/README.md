@@ -100,4 +100,12 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for development guidelines and contrib
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details. 
+The project has no license file yet, so its legal status is undefined: nobody may
+legally use, modify or redistribute it until one is added. Apache-2.0 is the intended
+choice — it matches the surrounding ecosystem (AWX and `ansible-runner` are both
+Apache-2.0) and its explicit patent grant matters for a tool meant to be shipped by a
+vendor. Adding it is blocked on deciding who holds the copyright.
+
+Note for contributors: do not import `ansible.*` directly. `ansible-core` is GPLv3, and
+invoking it as a separate process through `ansible-runner` (Apache-2.0) is what keeps
+this project's licensing choice open. 
