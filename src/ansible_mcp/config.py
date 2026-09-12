@@ -33,6 +33,10 @@ class Settings(BaseSettings):
             playbook hold its slot indefinitely.
         transport: ``stdio`` for a locally launched client, ``streamable-http``
             to serve a remote endpoint.
+        keep_artifacts_days: how long a finished run's artifacts are kept.
+            ``None`` keeps them forever, which is the current behaviour and
+            makes the data directory grow without bound. The task itself, with
+            its snapshots, is never deleted: only the artifacts are.
         extra_inventory_dirs: directories, besides the data dir's own
             ``inventories``, that a static provider may read inventory files
             from. Anything outside these is refused, so a provider cannot be
@@ -48,6 +52,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     max_concurrent_tasks: int = Field(default=4, ge=1)
     run_timeout_seconds: float | None = Field(default=None, gt=0)
+    keep_artifacts_days: int | None = Field(default=None, gt=0)
     transport: Literal["stdio", "streamable-http"] = "stdio"
     extra_inventory_dirs: list[Path] = Field(default_factory=list)
 

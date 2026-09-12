@@ -76,6 +76,7 @@ def build_application(settings: Settings) -> Application:
         Executor(settings.tasks_dir),
         max_concurrent_tasks=settings.max_concurrent_tasks,
         run_timeout_seconds=settings.run_timeout_seconds,
+        keep_artifacts_days=settings.keep_artifacts_days,
     )
     playbooks = PlaybookStore(session_factory)
     audit = AuditLog(session_factory)
@@ -88,7 +89,12 @@ def build_application(settings: Settings) -> Application:
     async def lifespan(_server: MCPServer) -> AsyncIterator[dict[str, Any]]:
         await create_schema(engine)
         interrupted = await manager.recover_interrupted()
-        log.info("started; %d interrupted task(s) failed on startup", interrupted)
+        pruned = await manager.prune_artifacts()
+        log.info(
+            "started; %d interrupted task(s) failed, %d run(s) pruned",
+            interrupted,
+            pruned,
+        )
         try:
             yield {}
         finally:

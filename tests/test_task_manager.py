@@ -1,7 +1,7 @@
 """The task manager owns the lifecycle of a run."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -263,3 +263,59 @@ async def test_shutdown_stops_running_tasks(manager, request_of):
 
     task = await manager.get(task_id)
     assert task.status is TaskStatus.CANCELLED
+
+
+# Found by review: artifacts grew without bound. Three runs left 150 files, most
+# of them one per Ansible event, so the cost is inodes as much as bytes.
+async def test_artifacts_are_kept_forever_by_default(session_factory, executor, request_of):
+    manager = TaskManager(session_factory, executor)
+    task_id = await manager.submit(request_of())
+    await manager.wait(task_id, timeout=60)
+
+    assert await manager.prune_artifacts() == 0
+    assert executor.run_dir(task_id).exists()
+
+
+async def test_artifacts_older_than_the_window_are_deleted(session_factory, executor, request_of):
+    manager = TaskManager(session_factory, executor, keep_artifacts_days=7)
+    task_id = await manager.submit(request_of())
+    await manager.wait(task_id, timeout=60)
+
+    async with session_factory() as session:
+        task = await session.get(Task, task_id)
+        task.finished_at = datetime.now(UTC) - timedelta(days=8)
+        await session.commit()
+
+    assert await manager.prune_artifacts() == 1
+    assert not executor.run_dir(task_id).exists()
+
+    # The row survives: it is the history, and it holds the snapshots.
+    task = await manager.get(task_id)
+    assert task.status is TaskStatus.SUCCESS
+    assert task.playbook_snapshot
+    # And it no longer promises artifacts that are gone.
+    assert task.artifacts_dir is None
+
+
+async def test_a_recent_run_is_left_alone(session_factory, executor, request_of):
+    manager = TaskManager(session_factory, executor, keep_artifacts_days=7)
+    task_id = await manager.submit(request_of())
+    await manager.wait(task_id, timeout=60)
+
+    assert await manager.prune_artifacts() == 0
+    assert executor.run_dir(task_id).exists()
+
+
+async def test_pruning_twice_is_harmless(session_factory, executor, request_of):
+    manager = TaskManager(session_factory, executor, keep_artifacts_days=1)
+    task_id = await manager.submit(request_of())
+    await manager.wait(task_id, timeout=60)
+
+    async with session_factory() as session:
+        task = await session.get(Task, task_id)
+        task.finished_at = datetime.now(UTC) - timedelta(days=2)
+        await session.commit()
+
+    assert await manager.prune_artifacts() == 1
+    # artifacts_dir is cleared, so the second pass finds nothing to do.
+    assert await manager.prune_artifacts() == 0

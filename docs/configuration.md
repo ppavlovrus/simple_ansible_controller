@@ -17,6 +17,7 @@ with a single volume.
 | `ANSIBLE_MCP_API_KEY` | none | Bearer token every HTTP request is checked against |
 | `ANSIBLE_MCP_MAX_CONCURRENT_TASKS` | `4` | How many playbooks may run at once |
 | `ANSIBLE_MCP_RUN_TIMEOUT_SECONDS` | none | How long one run may take before it is cancelled and failed |
+| `ANSIBLE_MCP_KEEP_ARTIFACTS_DAYS` | none | How long a finished run's artifacts are kept; unset keeps them forever |
 | `ANSIBLE_MCP_EXTRA_INVENTORY_DIRS` | none | Extra directories a provider may read inventory files from |
 | `ANSIBLE_MCP_LOG_LEVEL` | `INFO` | Root log level |
 
@@ -35,6 +36,22 @@ openssl rand -hex 32
 **`ANSIBLE_MCP_RUN_TIMEOUT_SECONDS`.** Unset means a playbook can hang forever
 and hold its slot while it does. `ansible-runner` has no timeout of its own, so
 this is the only limit there is.
+
+## What is kept on disk, and for how long
+
+A finished run leaves its artifacts under `$ANSIBLE_MCP_DATA_DIR/tasks/<id>/`:
+the output, the exit code, and one file per Ansible event. The inputs it ran
+with are deleted when it ends, because the task already stores them and an
+inventory can carry a password.
+
+`ANSIBLE_MCP_KEEP_ARTIFACTS_DAYS` deletes the artifacts of runs older than that
+many days, at startup. Unset, nothing is ever deleted and the directory grows
+without bound: three runs of a forty-task playbook leave around 90KB across 150
+files, so the count of files matters as much as their size.
+
+The task rows are never deleted. They are the history, they are small, and they
+hold the snapshots that make a run reproducible, so a pruned run can still be
+read — it just has no output any more.
 
 ## Where inventory files may live
 

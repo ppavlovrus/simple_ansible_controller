@@ -209,6 +209,10 @@ class Executor:
                 ident=request.task_id,
                 cancel_callback=should_cancel,
                 quiet=True,
+                # Halves what a successful run leaves on disk and keeps the
+                # structured event data for the runs where it is worth reading.
+                # stdout, which is what get_task_logs returns, is unaffected.
+                only_failed_event_data=True,
             )
         # A broken playbook, an unreadable inventory or a missing binary all
         # surface here. The caller gets a readable message, never a traceback.

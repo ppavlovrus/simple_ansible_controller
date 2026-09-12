@@ -19,7 +19,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select, update
@@ -63,6 +63,7 @@ class TaskManager:
         *,
         max_concurrent_tasks: int = 4,
         run_timeout_seconds: float | None = None,
+        keep_artifacts_days: int | None = None,
     ) -> None:
         """Create a manager.
 
@@ -72,11 +73,14 @@ class TaskManager:
             max_concurrent_tasks: how many runs may execute at once.
             run_timeout_seconds: how long a single run may take before it is
                 cancelled. ``None`` means no limit.
+            keep_artifacts_days: how long a finished run's artifacts are kept.
+                ``None`` keeps them forever.
         """
         self._session_factory = session_factory
         self._executor = executor
         self._semaphore = asyncio.Semaphore(max_concurrent_tasks)
         self._run_timeout = run_timeout_seconds
+        self._keep_artifacts_days = keep_artifacts_days
         self._running: dict[str, _InFlight] = {}
 
     async def recover_interrupted(self) -> int:
@@ -117,6 +121,44 @@ class TaskManager:
         if recovered:
             log.warning("failed %d task(s) interrupted by a restart", recovered)
         return recovered
+
+    async def prune_artifacts(self) -> int:
+        """Delete the artifacts of runs older than the retention window.
+
+        The task rows are left alone: they are the history, they are small, and
+        they hold the snapshots that make a run reproducible. What goes is the
+        bulk on disk, which for a successful run is mostly per-event files and
+        is of no interest once nobody is looking at it any more.
+
+        Returns:
+            How many runs had their artifacts deleted.
+        """
+        if self._keep_artifacts_days is None:
+            return 0
+
+        cutoff = datetime.now(UTC) - timedelta(days=self._keep_artifacts_days)
+        async with self._session_factory() as session:
+            stale = list(
+                await session.scalars(
+                    select(Task)
+                    .where(Task.finished_at.is_not(None))
+                    .where(Task.finished_at < cutoff)
+                    .where(Task.artifacts_dir.is_not(None)),
+                ),
+            )
+            for task in stale:
+                await asyncio.to_thread(self._executor.cleanup, task.id)
+                # Cleared so the row stops promising artifacts that are gone.
+                task.artifacts_dir = None
+            await session.commit()
+
+        if stale:
+            log.info(
+                "deleted the artifacts of %d run(s) finished before %s",
+                len(stale),
+                cutoff.date(),
+            )
+        return len(stale)
 
     async def submit(self, request: SubmitRequest) -> str:
         """Accept a run, persist it and start it in the background.
