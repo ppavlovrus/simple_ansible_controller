@@ -7,6 +7,7 @@ Welcome to the comprehensive documentation for the LLM-Powered Ansible Controlle
 ## 📚 Documentation Structure
 
 - **[Concept](concept.md)** - What the project is for: problem, consumers, target design, advantages and trade-offs
+- **[Roadmap](ru/roadmap.md)** - The path from prototype to a working agent-friendly core *(in Russian)*
 - **[Architecture Overview](architecture.md)** - System architecture and design patterns
 - **[API Reference](api-reference.md)** - Complete REST API documentation
 - **[CLI Reference](cli-reference.md)** - Command-line interface documentation

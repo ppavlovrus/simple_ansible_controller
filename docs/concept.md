@@ -159,6 +159,9 @@ These are consequences of the design, not bugs to be fixed later:
 
 - Replacing AWX / AAP for enterprise fleets.
 - Generating playbooks with an LLM (removed — it is the caller's job).
+- Building, storing or distributing execution-environment images. A run may be pointed
+  at an existing container image, but the image catalogue, the registries and the build
+  pipeline belong to the platforms above.
 - Acting as a CMDB or source of truth for infrastructure.
 - Providing a UI for humans to click through.
 
