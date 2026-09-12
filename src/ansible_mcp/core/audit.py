@@ -77,6 +77,11 @@ def describe_arguments(arguments: dict[str, Any]) -> str:
 
     Long values are reduced to their size: the interesting part of an audit entry
     is that `run_playbook` was called with a 240-line playbook, not the playbook.
+
+    Every value is measured, whatever its type. An earlier version capped only
+    strings and mappings, so a playbook sent as the parsed list of plays -- which
+    is the normal path, since that is what coercion exists to accept -- was
+    written into the row whole, secrets and all.
     """
     parts = []
     for name, value in sorted(arguments.items()):
@@ -84,13 +89,31 @@ def describe_arguments(arguments: dict[str, Any]) -> str:
             continue
         if is_secret_name(name):
             parts.append(f"{name}=[redacted]")
-        elif isinstance(value, str) and len(value) > MAX_VALUE_CHARS:
-            parts.append(f"{name}=<{len(value)} chars, {len(value.splitlines())} lines>")
-        elif isinstance(value, dict):
-            parts.append(f"{name}={{{', '.join(sorted(value))}}}" if value else f"{name}={{}}")
         else:
-            parts.append(f"{name}={value!r}")
+            parts.append(f"{name}={_describe_value(value)}")
     return redact(", ".join(parts))
+
+
+def _describe_value(value: Any) -> str:
+    """Render one argument value, by size once it stops being small."""
+    if isinstance(value, dict):
+        # Keys are useful for reading the log; values are not worth the risk.
+        return f"{{{', '.join(sorted(map(str, value)))}}}" if value else "{}"
+    if isinstance(value, str):
+        rendered = repr(value)
+    elif isinstance(value, list | tuple | set):
+        rendered = f"<{type(value).__name__} of {len(value)} items>"
+        if len(rendered) <= MAX_VALUE_CHARS:
+            return rendered
+    else:
+        rendered = repr(value)
+
+    if len(rendered) > MAX_VALUE_CHARS:
+        lines = value.splitlines() if isinstance(value, str) else []
+        measured = f"{len(value)} chars" if isinstance(value, str) else f"{len(rendered)} chars"
+        suffix = f", {len(lines)} lines" if lines else ""
+        return f"<{measured}{suffix}>"
+    return rendered
 
 
 class AuditLog:

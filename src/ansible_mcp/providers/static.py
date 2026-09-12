@@ -58,9 +58,19 @@ class StaticProvider:
             )
             raise ProviderConfigError(message)
 
-        if self._inline is not None and not str(self._inline).strip():
-            message = "'inventory' is empty"
-            raise ProviderConfigError(message)
+        if self._inline is not None:
+            # A dict passes every truthiness check and then str()s into a Python
+            # repr, which ansible cannot parse and which get_inventory reported
+            # as though it were the inventory.
+            if not isinstance(self._inline, str):
+                message = (
+                    "'inventory' must be the inventory text (INI or YAML), not "
+                    f"{type(self._inline).__name__}"
+                )
+                raise ProviderConfigError(message)
+            if not self._inline.strip():
+                message = "'inventory' is empty"
+                raise ProviderConfigError(message)
 
         if self._path is not None:
             path = self._resolved_path()
@@ -77,7 +87,7 @@ class StaticProvider:
         """
         self.validate()
         if self._inline is not None:
-            return str(self._inline)
+            return self._inline
 
         path = self._resolved_path()
         try:

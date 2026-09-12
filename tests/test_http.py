@@ -209,3 +209,65 @@ async def test_a_loopback_bind_without_a_key_is_served_unguarded(tmp_path, caplo
     assert any("unguarded" in record.message for record in caplog.records)
 
     await application.engine.dispose()
+
+
+async def test_a_token_with_high_bytes_is_refused_not_crashed():
+    """Found by review: compare_digest refuses non-ASCII strings.
+
+    The header was decoded with latin-1, which maps every byte to a character,
+    so any request with a high byte raised straight out of the middleware.
+    Uvicorn answers that with 500 and a traceback, and an anonymous caller could
+    do it in a loop.
+    """
+
+    async def application(scope, receive, send):
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    guarded = BearerTokenMiddleware(application, "correct-token")
+    statuses = []
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            statuses.append(message["status"])
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    for header in (
+        b"Bearer \xff\xfe\xfd\xfc\xfb\xfa\xf9\xf8",
+        "Bearer пароль-кириллицей".encode(),
+        b"Bearer \x00\x01\x02",
+    ):
+        statuses.clear()
+        await guarded(
+            {"type": "http", "path": "/mcp", "headers": [(b"authorization", header)]},
+            receive,
+            send,
+        )
+        assert statuses == [401], f"{header!r} did not produce a clean 401"
+
+
+async def test_a_correct_token_still_passes_after_the_bytes_change():
+    reached = []
+
+    async def application(scope, receive, send):
+        reached.append(scope["path"])
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    guarded = BearerTokenMiddleware(application, "correct-token")
+
+    async def send(message):
+        pass
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    await guarded(
+        {"type": "http", "path": "/mcp", "headers": [(b"authorization", b"Bearer correct-token")]},
+        receive,
+        send,
+    )
+
+    assert reached == ["/mcp"]

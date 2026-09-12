@@ -175,14 +175,20 @@ class Executor:
         shutil.rmtree(self.run_dir(task_id), ignore_errors=True)
 
     @staticmethod
-    def _drop_extravars(run_dir: Path) -> None:
-        """Remove the variables file ansible-runner wrote to disk.
+    def _drop_run_inputs(run_dir: Path) -> None:
+        """Remove what the run was fed, keeping what it produced.
 
-        Variables may carry secrets, and ``env/extravars`` keeps them in the
-        clear for as long as the run directory exists. The values are already in
-        the database, so the file has no reason to outlive the run.
+        Three files carry secrets and none of them need to survive the run. The
+        variables file ansible-runner writes (``env/extravars``) holds them in
+        the clear; the inventory can carry ``ansible_password``; and both the
+        playbook and the inventory are already stored with the task (ADR-0005),
+        so the copies here are duplicates that outlive their usefulness.
+
+        The artifacts stay: stdout is the only record of what actually happened.
         """
         (run_dir / "env" / "extravars").unlink(missing_ok=True)
+        shutil.rmtree(run_dir / "project", ignore_errors=True)
+        shutil.rmtree(run_dir / "inventory", ignore_errors=True)
 
     def _run_blocking(
         self,
@@ -215,7 +221,7 @@ class Executor:
             )
 
         finally:
-            self._drop_extravars(run_dir)
+            self._drop_run_inputs(run_dir)
 
         status = _RUNNER_STATUS_TO_TASK_STATUS.get(runner.status, TaskStatus.FAILED)
         return RunResult(

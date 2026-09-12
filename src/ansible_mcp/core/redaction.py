@@ -49,8 +49,15 @@ PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"), rf"\1 {PLACEHOLDER}"),
     (
+        # No leading \b: it does not match after an underscore, so a bare
+        # "password" was caught while "db_password", "ansible_password" and
+        # "login_password" -- the spellings that actually occur -- were not.
+        # The optional quote after the name matters: Ansible prints results as
+        # JSON, so the spelling that actually shows up in a failure is
+        # "login_password": "hunter2" -- quote, then colon.
         re.compile(
-            r"(?i)\b(password|passwd|token|secret|api[_-]?key)\b(\s*[:=]\s*)"
+            r"(?i)([\w.-]*(?:password|passwd|token|secret|api[_-]?key))"
+            r"([\"']?\s*[:=]\s*)"
             r"(?!\[redacted\])(\"[^\"]+\"|'[^']+'|\S+)",
         ),
         rf"\1\2{PLACEHOLDER}",

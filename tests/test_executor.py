@@ -64,19 +64,46 @@ async def test_successful_run(executor, local_playbook, local_inventory):
     assert "executor reached testhost" in executor.read_output("t1")
 
 
-async def test_run_directory_holds_the_inputs_it_ran_with(
+async def test_the_run_directory_is_laid_out_before_the_run(
     executor,
     local_playbook,
     local_inventory,
 ):
-    await executor.run(
-        RunRequest(task_id="t2", playbook=local_playbook, inventory=local_inventory),
-    )
+    request = RunRequest(task_id="t2", playbook=local_playbook, inventory=local_inventory)
+
+    executor.prepare(request)
 
     run_dir = executor.run_dir("t2")
     assert (run_dir / "project" / "playbook.yml").read_text() == local_playbook
     assert (run_dir / "inventory" / "hosts").read_text() == local_inventory
-    assert executor.stdout_path("t2").exists()
+
+
+async def test_the_inputs_do_not_outlive_the_run(executor, local_playbook, local_inventory):
+    """Found by review: run directories grew without bound.
+
+    The playbook and the inventory are already stored with the task (ADR-0005),
+    so the copies here are duplicates -- and an inventory can carry
+    ansible_password, which made this the longest-lived copy of a secret.
+    """
+    await executor.run(
+        RunRequest(
+            task_id="t2b",
+            playbook=local_playbook,
+            inventory="[all]\ntesthost ansible_connection=local ansible_password=hunter2\n",
+        ),
+    )
+
+    run_dir = executor.run_dir("t2b")
+    assert not (run_dir / "project").exists()
+    assert not (run_dir / "inventory").exists()
+    # What the run produced is what stays.
+    assert executor.stdout_path("t2b").exists()
+    leaked = [
+        str(path.relative_to(run_dir))
+        for path in run_dir.rglob("*")
+        if path.is_file() and "hunter2" in path.read_text(errors="ignore")
+    ]
+    assert leaked == []
 
 
 async def test_variables_reach_the_playbook(executor, local_playbook, local_inventory):

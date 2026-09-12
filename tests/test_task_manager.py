@@ -110,6 +110,46 @@ async def test_cancelling_a_queued_task_never_starts_it(session_factory, executo
     assert not executor.run_dir(queued).exists()
 
 
+async def test_a_queued_task_is_cancelled_without_waiting_for_a_slot(
+    session_factory,
+    executor,
+    request_of,
+):
+    """Found by review: the check sat inside the semaphore.
+
+    So cancel_task answered `cancelled: true` while the row stayed `pending`
+    until a slot freed up, which with a long run in flight could be hours.
+    """
+    manager = TaskManager(session_factory, executor, max_concurrent_tasks=1)
+    blocking = await manager.submit(request_of(SLOW_PLAYBOOK))
+    queued = await manager.submit(request_of())
+    await asyncio.sleep(2)
+
+    assert await manager.cancel(queued) is True
+    await asyncio.sleep(1)
+
+    # Terminal already, with the slow run still holding the only slot.
+    assert (await manager.get(queued)).status is TaskStatus.CANCELLED
+    assert (await manager.get(blocking)).status is TaskStatus.RUNNING
+
+    await manager.shutdown()
+
+
+async def test_waiting_past_a_timeout_returns_the_task_rather_than_raising(
+    manager,
+    request_of,
+):
+    # The docstring promised a return; asyncio.wait_for propagated TimeoutError,
+    # and evals/chain_runner.py calls this.
+    task_id = await manager.submit(request_of(SLOW_PLAYBOOK))
+
+    task = await manager.wait(task_id, timeout=1)
+
+    assert task is not None
+    assert task.status in {TaskStatus.PENDING, TaskStatus.RUNNING}
+    await manager.shutdown()
+
+
 async def test_cancelling_an_unknown_task_reports_nothing_to_do(manager):
     assert await manager.cancel("no-such-task") is False
 

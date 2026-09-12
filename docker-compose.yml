@@ -9,7 +9,7 @@ services:
     ports:
       - "2222:22"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "22"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/22"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -21,7 +21,7 @@ services:
     ports:
       - "2223:22"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "22"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/22"]
       interval: 10s
       timeout: 5s
       retries: 5

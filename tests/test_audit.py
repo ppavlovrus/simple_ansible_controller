@@ -189,3 +189,29 @@ async def test_an_unexpected_failure_is_audited_as_failed(application, monkeypat
     assert "list_tasks failed" in payload["error"]
     assert entries[0].outcome == "failed"
     assert "disk on fire" in entries[0].detail
+
+
+# Found by review: only strings and mappings were measured, so a playbook sent
+# as the parsed list of plays -- the normal path, since coercion exists to
+# accept it -- was written into the row whole.
+def test_a_parsed_playbook_is_recorded_by_size_not_content():
+    described = describe_arguments(
+        {"playbook": [{"hosts": "all", "tasks": [{"shell": "mysql -u root -pHunter2secret"}]}]},
+    )
+
+    assert "Hunter2secret" not in described
+    assert "list of 1 items" in described
+
+
+def test_variables_sent_as_a_short_json_string_are_still_redacted():
+    described = describe_arguments({"variables": '{"db_password": "hunter2"}'})
+
+    assert "hunter2" not in described
+    assert "[redacted]" in described
+
+
+def test_a_long_non_string_value_is_recorded_by_size():
+    described = describe_arguments({"tags": [f"tag-{index}" for index in range(60)]})
+
+    assert "tag-59" not in described
+    assert "60 items" in described

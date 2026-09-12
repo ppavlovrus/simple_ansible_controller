@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("ansible_mcp.http")
 
 HEALTH_PATH = "/healthz"
-BEARER_PREFIX = "bearer "
+BEARER_PREFIX = b"bearer "
 
 
 class BearerTokenMiddleware:
@@ -47,7 +47,10 @@ class BearerTokenMiddleware:
     def __init__(self, app: ASGIApp, api_key: str, *, unprotected: tuple[str, ...] = ()) -> None:
         """Wrap ``app``, letting ``unprotected`` paths through unchecked."""
         self._app = app
-        self._api_key = api_key
+        # Kept as bytes: the comparison below happens on the raw header, because
+        # compare_digest refuses str arguments holding non-ASCII characters and a
+        # header can hold any byte.
+        self._api_key = api_key.encode()
         self._unprotected = unprotected
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -63,17 +66,22 @@ class BearerTokenMiddleware:
         await self._app(scope, receive, send)
 
     def _authorized(self, scope: Scope) -> bool:
-        """Whether the request carries the expected token."""
+        """Whether the request carries the expected token.
+
+        Everything happens on bytes. Decoding the header first and comparing
+        strings made any request with a high byte in it raise out of the
+        middleware, which uvicorn answers with 500 and a traceback: an
+        anonymous caller could fill the operator's log at will.
+        """
         # Take the first Authorization header: a dict would keep only the last of
         # duplicates, which is a way to smuggle a second value past a check.
         raw = next(
             (value for (name, value) in scope.get("headers") or [] if name == b"authorization"),
             b"",
         )
-        header = raw.decode("latin-1")
-        if not header.lower().startswith(BEARER_PREFIX):
+        if raw[: len(BEARER_PREFIX)].lower() != BEARER_PREFIX:
             return False
-        token = header[len(BEARER_PREFIX) :].strip()
+        token = raw[len(BEARER_PREFIX) :].strip()
         return bool(token) and secrets.compare_digest(token, self._api_key)
 
 

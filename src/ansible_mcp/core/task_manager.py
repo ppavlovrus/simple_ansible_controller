@@ -197,22 +197,40 @@ class TaskManager:
         in_flight = self._running.get(task_id)
         if in_flight is None:
             return False
+
         in_flight.cancellation.cancel()
+        if not in_flight.started:
+            # Cancelling the coroutine is not enough to record the outcome: if
+            # the cancel lands before the coroutine's first step, it never
+            # enters its own try block, so the status is written here instead of
+            # relying on a handler that may not run.
+            in_flight.background.cancel()
+            await self._finish(
+                task_id,
+                TaskStatus.CANCELLED,
+                None,
+                "cancelled while waiting for a slot",
+            )
         return True
 
     async def wait(self, task_id: str, timeout: float | None = None) -> Task | None:
         """Wait for a task to finish and return it.
+
+        A timeout is not an error here: waiting is how a caller polls, and the
+        task as it stands is a useful answer. The run continues.
 
         Args:
             task_id: task to wait for.
             timeout: how long to wait. ``None`` waits indefinitely.
 
         Returns:
-            The finished task, or the task as it stands if it is not tracked.
+            The task: finished if it finished within the timeout, as it stands
+            otherwise, or ``None`` if there is no such task.
         """
         in_flight = self._running.get(task_id)
         if in_flight is not None:
-            await asyncio.wait_for(asyncio.shield(in_flight.background), timeout)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(in_flight.background), timeout)
         return await self.get(task_id)
 
     async def shutdown(self) -> None:
@@ -238,12 +256,16 @@ class TaskManager:
         """
         try:
             async with self._semaphore:
-                # Cancelling while queued must not start the playbook at all.
+                # A slot can free up long after the cancel arrived.
                 if cancellation.is_cancelled:
                     await self._finish(
                         task_id, TaskStatus.CANCELLED, None, "cancelled before it started"
                     )
                     return
+
+                in_flight = self._running.get(task_id)
+                if in_flight is not None:
+                    in_flight.started = True
 
                 await self._mark_running(task_id)
                 result = await self._run(task_id, request, cancellation)
@@ -256,6 +278,9 @@ class TaskManager:
                 artifacts_dir=str(result.run_dir),
             )
         except asyncio.CancelledError:
+            # Reached on shutdown, or when a queued task is cancelled after it
+            # has started running. cancel() has already recorded the queued
+            # case, and writing the same terminal status twice is harmless.
             await self._finish(task_id, TaskStatus.CANCELLED, None, "the service stopped this task")
             raise
         except Exception as error:
@@ -335,6 +360,11 @@ class _InFlight:
 
     background: asyncio.Task[None]
     cancellation: Cancellation
+    # False while the task is still waiting for a slot. A queued task is parked
+    # inside the semaphore, where no flag can reach it, so cancelling one means
+    # cancelling the coroutine; a running one is asked to stop cooperatively,
+    # because killing it would abandon a live ansible-playbook process.
+    started: bool = False
 
 
 def _as_timed_out(result: RunResult, timeout: float) -> RunResult:

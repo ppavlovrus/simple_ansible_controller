@@ -116,3 +116,33 @@ async def test_a_password_echoed_by_a_playbook_does_not_reach_the_caller(
     assert PLACEHOLDER in output
     # A non-secret variable is untouched, so the log stays useful.
     assert "postgres" in output
+
+
+# Found by review: the generic pattern required a bare secret name, so every
+# spelling that actually occurs went through untouched.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "db_password: hunter2",
+        "ansible_password=hunter2",
+        '"login_password": "hunter2"',
+        "{'vault_token': 'hunter2'}",
+        "MYSQL_ROOT_PASSWORD=hunter2",
+        "api_token: hunter2",
+    ],
+)
+def test_a_prefixed_secret_name_is_redacted_too(text):
+    redacted = redact(text)
+
+    assert "hunter2" not in redacted
+    assert PLACEHOLDER in redacted
+
+
+def test_a_secret_in_ansible_json_output_is_redacted():
+    # This is the shape a failing task actually prints.
+    output = '"module_args": {"login_password": "hunter2", "login_user": "root"}'
+
+    redacted = redact(output)
+
+    assert "hunter2" not in redacted
+    assert "root" in redacted

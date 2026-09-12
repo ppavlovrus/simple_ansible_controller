@@ -223,3 +223,40 @@ async def test_a_provider_cannot_be_pointed_at_an_arbitrary_host_file(providers)
         await providers.add("sneaky", "static", {"inventory_file": "/etc/passwd"})
 
     assert await providers.list() == []
+
+
+# Found by review: a dict passed every truthiness check and then str()'d into a
+# Python repr, which ansible cannot parse and get_inventory showed as if it were
+# the inventory.
+@pytest.mark.parametrize("value", [{"all": {"hosts": {"web1": None}}}, ["web1", "web2"], 42])
+def test_a_non_text_inventory_is_refused(value):
+    with pytest.raises(ProviderConfigError, match="must be the inventory text"):
+        StaticProvider({"inventory": value}).validate()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("auth", {"token": "real-secret"}),
+        ("tokens", ["real-secret"]),
+        ("nested", {"cfg": {"password": "real-secret"}}),
+    ],
+)
+async def test_a_nested_credential_is_refused(providers, key, value):
+    # ADR-0006 promises a copy of the database carries no secrets, and the guard
+    # used to look only at top-level strings.
+    with pytest.raises(ProviderConfigError, match="credentials are read from the environment"):
+        await providers.add("cloud", "static", {"inventory": INVENTORY, key: value})
+
+    assert await providers.list() == []
+
+
+async def test_naming_an_environment_variable_is_still_allowed(providers):
+    # The intended way to reference a credential must survive the stricter guard.
+    await providers.add(
+        "lab",
+        "static",
+        {"inventory": INVENTORY, "token_env": "YC_TOKEN", "folder_id": "b1gxxx"},
+    )
+
+    assert (await providers.list())[0].config["token_env"] == "YC_TOKEN"

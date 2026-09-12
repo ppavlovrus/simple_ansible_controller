@@ -7,6 +7,7 @@ environment (ADR-0006), so a copy of the database carries no secrets.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,13 +48,26 @@ def looks_like_a_secret(key: str, value: Any) -> bool:
     Names ending in ``_env`` are the intended way to reference a credential, so
     they are allowed: they hold the name of an environment variable, not its
     value.
+
+    A nested value counts. Only looking at top-level strings meant
+    ``{"auth": {"token": "..."}}`` was stored happily, which breaks the promise
+    that a copy of the database carries no secrets (ADR-0006).
     """
-    if not isinstance(value, str):
-        return False
     lowered = key.lower()
     if lowered.endswith("_env"):
         return False
-    return any(hint in lowered for hint in SECRET_HINTS)
+    if any(hint in lowered for hint in SECRET_HINTS):
+        return isinstance(value, str | int | float) or bool(value)
+    return _nested_secret(value)
+
+
+def _nested_secret(value: Any) -> bool:
+    """Whether anything inside a container looks like a credential."""
+    if isinstance(value, dict):
+        return any(looks_like_a_secret(str(key), nested) for key, nested in value.items())
+    if isinstance(value, list | tuple | set):
+        return any(_nested_secret(item) for item in value)
+    return False
 
 
 class Providers:
@@ -128,7 +142,7 @@ class Providers:
 
         providers = []
         for row in rows:
-            problem = self._problem_with(row)
+            problem = await asyncio.to_thread(self._problem_with, row)
             providers.append(
                 ConfiguredProvider(
                     name=row.name,
@@ -161,7 +175,10 @@ class Providers:
             raise ProviderConfigError(message)
 
         plugin = self._registry.build(row.plugin_type, dict(row.config))
-        return plugin.get_inventory()
+        # A cloud plugin's get_inventory does HTTP, and the Protocol is
+        # deliberately synchronous, so this belongs off the event loop: otherwise
+        # one run naming a cloud provider stalls every other call in the session.
+        return await asyncio.to_thread(plugin.get_inventory)
 
     async def delete(self, name: str) -> bool:
         """Remove a provider's configuration.

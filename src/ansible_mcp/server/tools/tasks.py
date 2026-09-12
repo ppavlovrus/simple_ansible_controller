@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ansible_mcp.core import SubmitRequest
+from ansible_mcp.core import InvalidPlaybookError, SubmitRequest, validate_playbook
 from ansible_mcp.db import Task, TaskStatus
 from ansible_mcp.providers import ProviderError
 from ansible_mcp.server.coercion import as_list, as_mapping, as_text, as_yaml_text
@@ -121,6 +121,13 @@ def register(server: MCPServer, services: Services) -> None:
         else:
             content = playbook or ""
             require(bool(content.strip()), "playbook is empty: pass the playbook YAML as text")
+            # Same check save_playbook makes. Without it a malformed playbook
+            # became a persisted task, a run directory and an opaque complaint
+            # from ansible, where the storing path answers immediately.
+            try:
+                validate_playbook(content)
+            except InvalidPlaybookError as error:
+                raise UsageError(str(error)) from error
 
         if provider:
             try:

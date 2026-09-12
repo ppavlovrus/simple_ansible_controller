@@ -212,3 +212,21 @@ async def test_responses_carry_only_the_fields_an_agent_needs(
 
 # The exposure gate and the token check live in test_http.py, which drives them
 # over real requests.
+
+
+async def test_an_inline_playbook_that_is_not_a_playbook_is_refused(application, local_inventory):
+    """Found by review: run_playbook only checked for non-empty.
+
+    save_playbook validated and run_playbook did not, so the same mistake got an
+    actionable refusal on one path and an opaque ansible error on the other.
+    """
+    payload = await call(
+        application,
+        "run_playbook",
+        playbook="just some text, not a playbook",
+        inventory=local_inventory,
+    )
+
+    assert "list of plays" in payload["error"]
+    # Nothing was persisted for it.
+    assert (await call(application, "list_tasks"))["returned"] == 0
