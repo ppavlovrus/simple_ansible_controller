@@ -75,7 +75,7 @@ jobs:
           fi
 
       - name: Build and push, glibc
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Containerfile
@@ -86,7 +86,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push, musl
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Containerfile.alpine
