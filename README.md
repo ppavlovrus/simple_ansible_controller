@@ -2,6 +2,8 @@
 
 A modern Ansible automation platform that uses Large Language Models (LLMs) to generate Ansible playbooks from natural language descriptions. This project combines the power of AI with traditional infrastructure automation.
 
+*Русская версия: [README.ru.md](README.ru.md)*
+
 > **Project status — read this first.** What is described below is the original
 > prototype. The project is being reshaped into a minimal, agent-facing Ansible
 > controller: MCP as the primary interface, SQLite and asyncio instead of

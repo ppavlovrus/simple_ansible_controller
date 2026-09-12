@@ -2,6 +2,8 @@
 
 Welcome to the comprehensive documentation for the LLM-Powered Ansible Controller. This project combines traditional Ansible automation with cutting-edge Large Language Model (LLM) technology to enable natural language-driven infrastructure automation.
 
+*Русская версия: [docs/ru/README.md](ru/README.md)*
+
 ## 📚 Documentation Structure
 
 - **[Concept](concept.md)** - What the project is for: problem, consumers, target design, advantages and trade-offs
