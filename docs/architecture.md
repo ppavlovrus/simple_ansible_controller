@@ -1,310 +1,166 @@
-# Architecture Overview
+# Architecture
 
-## System Architecture
+What the code does now. Why it is shaped this way is in the
+[decision log](adr/INDEX.md); what it is for is in the [concept](concept.md).
 
-The LLM-Powered Ansible Controller follows a modern microservices architecture with clear separation of concerns and modular design.
+*Русская версия: [docs/ru/architecture.md](ru/architecture.md)*
+
+## The shape of it
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        CLI[CLI Interface]
-        API[API Client]
-        Web[Web Interface]
+    Agent[AI agent] -->|MCP| Tools
+    Human[curl / scripts] -.->|REST, not built yet| Tools
+
+    subgraph Interface["server/"]
+        Tools[13 tools<br/>tasks, playbooks, providers]
+        Instr[instrumentation<br/>audit + readable failures]
+        Auth[bearer check<br/>HTTP only]
     end
-    
-    subgraph "API Layer"
-        FastAPI[FastAPI Application]
-        Auth[Authentication]
-        Validation[Request Validation]
+
+    subgraph Core["core/"]
+        TM[TaskManager<br/>lifecycle, concurrency, timeout]
+        Exec[Executor<br/>ansible-runner in a thread]
+        Store[PlaybookStore]
+        Redact[redaction]
+        Audit[AuditLog]
     end
-    
-    subgraph "Business Logic"
-        LLM[LLM Integration]
-        TM[Template Manager]
-        TaskM[Task Manager]
+
+    subgraph Providers["providers/"]
+        Registry[ProviderRegistry<br/>built-in + entry points]
+        Static[StaticProvider]
     end
-    
-    subgraph "Data Layer"
-        DB[(PostgreSQL)]
-        Redis[(Redis)]
-        FS[File System]
-    end
-    
-    subgraph "Execution Layer"
-        Celery[Celery Workers]
-        Ansible[Ansible Runner]
-        SSH[SSH Connections]
-    end
-    
-    CLI --> FastAPI
-    API --> FastAPI
-    Web --> FastAPI
-    
-    FastAPI --> LLM
-    FastAPI --> TM
-    FastAPI --> TaskM
-    
-    LLM --> DB
-    TM --> DB
-    TaskM --> DB
-    
-    TaskM --> Redis
-    Celery --> Redis
-    Celery --> Ansible
-    Ansible --> SSH
+
+    Data[(SQLite + /data<br/>tasks, playbooks, providers, audit)]
+    Ansible[ansible-playbook]
+
+    Auth --> Tools
+    Tools --> Instr
+    Instr --> TM
+    Instr --> Store
+    Instr --> Registry
+    Instr --> Audit
+    TM --> Exec
+    TM --> Redact
+    Registry --> Static
+    Exec --> Ansible
+    TM --> Data
+    Store --> Data
+    Audit --> Data
+    Registry --> Data
 ```
 
-## Core Components
+Three layers, one direction of dependency: `server/` knows about `core/` and
+`providers/`, they know about `db/`, and nothing knows about `server/`.
 
-### 1. API Layer (`src/crud/api.py`)
+## What each part is responsible for
 
-**Purpose**: Provides REST API endpoints for all system operations.
+### `server/`
 
-**Key Features**:
-- FastAPI-based REST API
-- Automatic OpenAPI documentation
-- Request/response validation with Pydantic
-- Dependency injection for database sessions
-- Error handling and logging
+| Module | Responsibility |
+|---|---|
+| `app.py` | Builds the server, the services and the lifespan; refuses an unsafe exposure |
+| `tools/tasks.py` | `run_playbook`, `get_task_status`, `get_task_logs`, `cancel_task`, `list_tasks` |
+| `tools/playbooks.py` | `save_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
+| `tools/providers.py` | `add_provider`, `list_providers`, `get_inventory`, `delete_provider` |
+| `instrumentation.py` | One wrapper per tool: writes the audit entry, turns a failure into a sentence |
+| `errors.py` | How a tool refuses: `require`, `found`, `confirmed` |
+| `coercion.py` | Accepts the argument shapes agents actually send |
+| `http.py` | Bearer check, `/healthz`, and the uvicorn entry |
 
-**Main Endpoints**:
-- `POST /generate-playbook/` - LLM-powered playbook generation
-- `POST /add-task/` - Traditional task scheduling
-- `GET /templates/` - Template management
-- `GET /health` - System health check
+A tool is a function with a docstring, because the docstring is what an agent
+reads when choosing it. That makes tool descriptions part of the contract rather
+than documentation, and the [eval harness](../evals/README.md) measures them.
 
-### 2. LLM Integration (`src/llm/`)
+### `core/`
 
-**Purpose**: Handles AI-powered playbook generation and template management.
+`TaskManager` owns a run from submission to a terminal status: it persists the
+task, queues it behind a semaphore, enforces a timeout that `ansible-runner` does
+not provide, cancels on request, and fails anything left active by a crashed
+process on the next start. Every path out of it writes a terminal status, because
+a row stuck at `running` is the one failure a polling agent cannot recover from.
 
-#### PlaybookGenerator (`src/llm/playbook_generator.py`)
+`Executor` is the only thing that talks to `ansible-runner`. The library is
+blocking, so each run is pushed onto a worker thread and the event loop stays
+free. One directory per run holds the playbook and inventory it used and the
+artifacts it produced.
 
-**Core Functions**:
-- `generate_playbook()` - Main generation function
-- `_generate_with_openai()` - OpenAI API integration
-- `_generate_with_anthropic()` - Anthropic API integration
-- `_validate_playbook()` - Safety and syntax validation
-- `_extract_yaml_from_response()` - YAML extraction from LLM responses
+`PlaybookStore` keeps playbooks by name and refuses text that is not a playbook.
+`redaction` removes secrets from anything leaving the process. `AuditLog` records
+every call, its outcome and the run it produced.
 
-**Safety Features**:
-- Dangerous pattern detection
-- Configurable safety levels
-- YAML validation
-- Permission checks
+### `providers/`
 
-#### TemplateManager (`src/llm/template_manager.py`)
+A provider answers one question: which hosts. `ProviderRegistry` holds the
+built-in plugins and any published through the `ansible_mcp.providers` entry
+point group; a third-party plugin that fails to import is logged and skipped.
+`Providers` stores configuration, reports which providers currently work, and
+resolves an inventory on demand.
 
-**Core Functions**:
-- `initialize_default_templates()` - Setup default templates
-- `create_template()` - Create new templates
-- `render_template()` - Render templates with variables
-- `validate_variables()` - Variable validation against schemas
-
-### 3. Data Models (`src/models/models.py`)
-
-**Purpose**: Defines database schema and data structures.
-
-**Key Models**:
-- `TaskModel` - Ansible task storage
-- `PlaybookTemplate` - Template storage and management
-
-**Features**:
-- SQLAlchemy ORM integration
-- JSON field support for metadata
-- Soft delete functionality
-- Timestamp tracking
-
-### 4. Task Management (`src/db/celery_app.py`)
-
-**Purpose**: Handles asynchronous task execution and scheduling.
-
-**Core Functions**:
-- `schedule_task()` - Schedule playbook execution
-- `run_playbook()` - Execute Ansible playbooks
-- `save_task_to_db()` - Persist task data
-- `restore_tasks_from_db()` - Restore tasks on startup
-
-**Features**:
-- Celery integration for async processing
-- Ansible Runner for playbook execution
-- Temporary file handling for generated playbooks
-- Error handling and logging
-
-### 5. Configuration (`src/config.py`)
-
-**Purpose**: Centralized configuration management.
-
-**Features**:
-- Environment variable support
-- Configuration validation
-- LLM provider abstraction
-- Safety level configuration
-
-## Data Flow
-
-### 1. Playbook Generation Flow
+## What a run looks like
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant API
-    participant LLM
-    participant DB
-    participant Celery
-    participant Ansible
-    
-    Client->>API: POST /generate-playbook/
-    API->>LLM: generate_playbook()
-    LLM->>LLM: _validate_playbook()
-    LLM->>API: Return generated playbook
-    API->>DB: save_task_to_db()
-    API->>Celery: schedule_task()
-    Celery->>Ansible: run_playbook()
-    Ansible->>Client: Return execution results
+    participant Agent
+    participant Tool as run_playbook
+    participant TM as TaskManager
+    participant Exec as Executor
+    participant DB as SQLite
+
+    Agent->>Tool: playbook or playbook_name, inventory or provider
+    Tool->>Tool: resolve the playbook and the inventory
+    Tool->>TM: submit
+    TM->>DB: insert task with both snapshots
+    TM-->>Tool: task id
+    Tool-->>Agent: {"task_id": ..., "status": "pending"}
+
+    TM->>TM: wait for a slot
+    TM->>DB: status = running
+    TM->>Exec: run on a worker thread
+    Exec->>Exec: ansible-playbook
+    Exec-->>TM: status, exit code, artifacts
+    TM->>DB: terminal status
+
+    Agent->>TM: get_task_status (polling)
+    Agent->>TM: get_task_logs
+    TM-->>Agent: output, with secrets removed
 ```
 
-### 2. Template Rendering Flow
+The snapshots taken at submission are why a finished run can be examined after
+the playbook or the cloud inventory has changed (ADR-0005).
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API
-    participant TM
-    participant DB
-    
-    Client->>API: POST /templates/{id}/render
-    API->>TM: render_template()
-    TM->>DB: get_template()
-    TM->>TM: validate_variables()
-    TM->>TM: render_template()
-    TM->>API: Return rendered content
-    API->>Client: Return playbook
+## On disk
+
+```
+/data/
+├── ansible_mcp.db          tasks, playbooks, providers, audit
+├── inventories/            the only place a provider may read a file from
+└── tasks/<task id>/
+    ├── project/playbook.yml    what ran
+    ├── inventory/hosts         where it ran
+    └── artifacts/<task id>/
+        ├── stdout
+        └── rc
 ```
 
-## Security Architecture
+`env/extravars`, which `ansible-runner` writes with the run's variables in the
+clear, is deleted once the run ends: the values are already in the database and
+the file has no reason to outlive the run.
 
-### 1. Input Validation
-- Pydantic models for request validation
-- YAML syntax validation
-- Variable type checking
-- Required field validation
+## Stack
 
-### 2. Safety Checks
-- Dangerous pattern detection
-- Permission escalation validation
-- Safety level enforcement
-- Template variable validation
+Python 3.11, the MCP SDK (`MCPServer`, formerly `FastMCP`), `ansible-runner` with
+`ansible-core`, SQLAlchemy over SQLite in WAL mode, `pydantic-settings`, uvicorn
+and Starlette for the HTTP transport. No database server, no broker, no worker
+fleet (ADR-0003).
 
-### 3. Access Control
-- API key validation for LLM providers
-- Database connection security
-- SSH key management
-- Environment variable protection
+## Limits worth knowing before reading the code
 
-## Scalability Considerations
-
-### 1. Horizontal Scaling
-- Stateless API design
-- Redis-based task queue
-- Database connection pooling
-- Container-based deployment
-
-### 2. Performance Optimization
-- Asynchronous task processing
-- Template caching
-- Database indexing
-- Connection pooling
-
-### 3. Monitoring and Observability
-- Health check endpoints
-- Structured logging
-- Error tracking
-- Performance metrics
-
-## Technology Stack
-
-### Backend
-- **Python 3.9+** - Core programming language
-- **FastAPI** - Web framework
-- **SQLAlchemy** - ORM
-- **Celery** - Task queue
-- **Redis** - Message broker
-- **PostgreSQL** - Primary database
-
-### AI/ML
-- **OpenAI GPT-4** - Primary LLM provider
-- **Anthropic Claude** - Alternative LLM provider
-- **Jinja2** - Template engine
-
-### Infrastructure
-- **Docker** - Containerization
-- **Docker Compose** - Multi-container orchestration
-- **Ansible Runner** - Playbook execution
-- **SSH** - Remote execution
-
-### Development
-- **Pytest** - Testing framework
-- **Black** - Code formatting
-- **Flake8** - Linting
-- **Click** - CLI framework
-
-## Design Patterns
-
-### 1. Dependency Injection
-- Database session management
-- Configuration injection
-- Service layer abstraction
-
-### 2. Repository Pattern
-- Database access abstraction
-- Template management
-- Task persistence
-
-### 3. Factory Pattern
-- LLM provider selection
-- Template rendering
-- Task creation
-
-### 4. Strategy Pattern
-- Safety level implementation
-- LLM provider switching
-- Validation strategies
-
-## Error Handling
-
-### 1. API Errors
-- HTTP status codes
-- Structured error responses
-- Validation error details
-- Rate limiting
-
-### 2. LLM Errors
-- API connection failures
-- Token limit exceeded
-- Invalid responses
-- Provider-specific errors
-
-### 3. Execution Errors
-- Ansible execution failures
-- SSH connection issues
-- File system errors
-- Database errors
-
-## Future Enhancements
-
-### 1. Additional LLM Providers
-- Local model support
-- Custom model integration
-- Multi-provider fallback
-
-### 2. Advanced Features
-- Playbook versioning
-- Rollback capabilities
-- Advanced scheduling
-- Multi-environment support
-
-### 3. Integration Capabilities
-- CI/CD pipeline integration
-- Monitoring system integration
-- Notification systems
-- Audit logging 
+- One node. SQLite and in-process asyncio, with concurrency bounded by a
+  semaphore.
+- One token for the whole instance, so the audit log records what was done and
+  not by whom (ADR-0012).
+- Run variables sit in the database in the clear, because a run cannot be
+  reproduced without them. The database file is a sensitive artifact.
+- No REST surface yet, despite ADR-0002 promising one. MCP came first and the
+  REST layer has not been written.

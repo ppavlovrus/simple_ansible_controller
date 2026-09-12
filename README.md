@@ -1,173 +1,130 @@
-# LLM-Powered Ansible Controller
+# ansible-mcp
 
-A modern Ansible automation platform that uses Large Language Models (LLMs) to generate Ansible playbooks from natural language descriptions. This project combines the power of AI with traditional infrastructure automation.
+A minimal Ansible controller with an MCP interface, for AI agents.
+
+Give it a playbook and an inventory; it runs them and keeps the history, the logs
+and the artifacts of every run. One process, one SQLite file, one container. No
+database server, no message broker, no worker fleet.
 
 *Русская версия: [README.ru.md](README.ru.md)*
 
-> **Project status — read this first.** The prototype described below has been
-> removed from the code: the LLM generation, Celery and PostgreSQL layers are gone and
-> the core is being rebuilt. **The commands in this file do not work right now.** This
-> README is rewritten at the end of the rebuild. The project is being reshaped into a minimal, agent-facing Ansible
-> controller: MCP as the primary interface, SQLite and asyncio instead of
-> PostgreSQL/Redis/Celery, and no LLM playbook generation (that is the calling agent's
-> job). See **[docs/concept.md](docs/concept.md)** for the target concept — the problem
-> it solves, who it is for, how it works, and its advantages and trade-offs.
+## Why
 
-## Features
+Running Ansible against a handful of hosts is easy. Running it *programmatically*
+is not, and the moment you want that the options get heavy: AWX and Ansible
+Automation Platform need PostgreSQL, Redis, RabbitMQ, Receptor and in practice
+Kubernetes. For fifty hosts that control plane costs more than the problem it
+solves.
 
-- 🤖 **AI-Powered Playbook Generation**: Generate Ansible playbooks using natural language descriptions
-- 🛡️ **Safety Validation**: Built-in safety checks to prevent dangerous operations
-- 📋 **Template System**: Reusable Jinja2 templates for common automation patterns
-- 🔄 **Task Scheduling**: Schedule playbook execution with Celery
-- 📊 **Task Management**: List, view, and manage scheduled tasks
-- 🌐 **REST API**: Full REST API for integration with other tools
-- 💻 **CLI Interface**: Command-line interface for easy interaction
-- 🐳 **Docker Support**: Containerized deployment with Docker Compose
+And an AI agent driving infrastructure needs a machine-facing interface. A REST
+API designed for a human clicking through a UI means deep object graphs and a
+dozen calls to launch one job; an agent wants a handful of well-named verbs.
 
-## Supported LLM Providers
+That is what this is: a **dumb executor** with an agent-shaped interface. It does
+not write playbooks and does not decide what to run — the calling agent does
+both. See [docs/concept.md](docs/concept.md).
 
-- OpenAI GPT-4
-- Anthropic Claude
-- Extensible for other providers
+## Quick start
 
-## Quick Start
-
-### Prerequisites
-
-- Docker and Docker Compose
-- OpenAI API key or Anthropic API key
-
-### Setup
-
-1. **Generate local SSH keys:**
-   ```bash
-   make keygen
-   ```
-   Keys are never committed to the repository. `make build` depends on this target, so
-   a fresh ed25519 pair is created on the first build; the private key goes into the
-   controller image and the public one into the test host.
-
-2. **Clone and build the project:**
-   ```bash
-   make clean
-   make build
-   ```
-
-3. **Configure environment variables:**
-   ```bash
-   cp src/env.example src/.env
-   # Edit src/.env with your API keys
-   ```
-
-4. **Start the application:**
-   ```bash
-   make run
-   ```
-
-5. **Access the API:**
-   - API Documentation: http://localhost:8000/docs
-   - Health Check: http://localhost:8000/status
-
-## Usage Examples
-
-### Generate a Playbook via API
+The fastest path is stdio, where the client launches the process:
 
 ```bash
-curl -X POST http://localhost:8000/generate-playbook/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Install and configure nginx web server with SSL",
-    "hosts": "web_servers",
-    "inventory": "/app/ansible_playbooks/inventory",
-    "run_time": "2024-11-01T12:00:00",
-    "safety_level": "medium"
-  }'
+poetry install
+poetry run ansible-mcp        # speaks MCP on stdin/stdout
 ```
 
-### Use the CLI
+In Claude Code, or any MCP client:
+
+```json
+{
+  "mcpServers": {
+    "ansible-mcp": {
+      "command": "poetry",
+      "args": ["run", "ansible-mcp"],
+      "env": { "ANSIBLE_MCP_DATA_DIR": "/tmp/ansible-mcp" }
+    }
+  }
+}
+```
+
+As a container, serving over HTTP:
 
 ```bash
-# Generate a playbook
-python src/cli.py generate \
-  --description "Install Docker and configure firewall" \
-  --hosts "docker_hosts" \
-  --inventory "/app/ansible_playbooks/inventory" \
-  --safety-level high
-
-# List available templates
-python src/cli.py list-templates
-
-# Render a template
-python src/cli.py render-template \
-  --template-id 1 \
-  --variables '{"hosts": "web_servers", "web_server": "nginx"}'
+docker build -t ansible-mcp .
+docker run -p 8080:8080 -v ./data:/data \
+  -e ANSIBLE_MCP_API_KEY="$(openssl rand -hex 32)" ansible-mcp
 ```
 
-### Use Make Commands
+The key is not optional there: the container listens beyond loopback, and the
+server refuses to serve an unauthenticated endpoint that executes playbooks.
+For a host installation, see [packaging](packaging/README.md).
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `run_playbook` | Starts a run and returns a task id; the run continues in the background |
+| `get_task_status` | pending, running, success, failed or cancelled, with timestamps and exit code |
+| `get_task_logs` | What Ansible printed, last lines first by default, secrets removed |
+| `cancel_task` | Stops a queued or running playbook; needs `confirm=true` |
+| `list_tasks` | Recent runs, newest first, filterable by status |
+| `save_playbook` / `list_playbooks` / `get_playbook` / `delete_playbook` | Playbooks by name, so a run need not carry its text |
+| `add_provider` / `list_providers` / `get_inventory` / `delete_provider` | Where an inventory comes from |
+
+A provider is a small plugin that produces an inventory: `static` ships built in,
+others register through the `ansible_mcp.providers` entry point group. Cloud
+providers are the next ones planned.
+
+## What it deliberately does not do
+
+- **No RBAC, no multi-tenancy.** One key gates the instance.
+- **No horizontal scaling.** One node, concurrency bounded by a semaphore.
+- **No web UI.**
+- **No playbook generation.** That is the calling agent's job, and the LLM layer
+  the prototype had was removed rather than ported.
+
+Each of these is a decision with its reasoning and its rejected alternatives in
+the [decision log](docs/adr/INDEX.md). Outgrowing them is the signal to move to a
+full platform, and that boundary is what keeps this project small.
+
+## Working on it
 
 ```bash
-# Generate a web server playbook
-make generate-playbook
-
-# List templates
-make list-templates
-
-# Render a template
-make render-template
+poetry install
+poetry run task tests        # 208 tests
+poetry run task lint         # ruff + ruff format + mypy
+make integration             # playbooks against real hosts over SSH
+poetry run task eval         # can a local model actually drive this?
 ```
 
-## Safety Features
+The eval harness is not decoration: it reads the tool schemas from the running
+server and measures whether a model picks the right tool. Several tool
+descriptions and the whole argument-coercion layer exist because it failed first.
+See [evals/README.md](evals/README.md).
 
-The system includes multiple safety mechanisms:
+Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 
-- **Dangerous Pattern Detection**: Blocks operations like `rm -rf`, `dd`, `mkfs`
-- **Safety Levels**: Configure validation strictness (low/medium/high)
-- **YAML Validation**: Ensures generated playbooks are valid
-- **Permission Checks**: Validates `become` usage and shell commands
+## Documentation
 
-## Project Architecture
+| | |
+|---|---|
+| [Concept](docs/concept.md) | The problem, the consumers, the trade-offs |
+| [Architecture](docs/architecture.md) | What the code does now |
+| [Configuration](docs/configuration.md) | Every setting |
+| [Decision log](docs/adr/INDEX.md) | Why the boundaries are where they are |
+| [Packaging](packaging/README.md) | Container and Debian package |
+| [Evals](evals/README.md) | Measuring whether an agent can drive it |
+| [Integration](integration/README.md) | Connecting a client, and a ready-made skill |
+| [Roadmap](docs/ru/roadmap.md) | What is done and what is next *(in Russian)* |
 
-- **FastAPI**: REST API framework
-- **Celery**: Task queue and scheduling
-- **PostgreSQL**: Database for tasks and templates
-- **Redis**: Message broker for Celery
-- **Ansible Runner**: Playbook execution engine
-- **LLM Integration**: OpenAI/Anthropic API integration
-- **Jinja2**: Template rendering engine
+## Status
 
-## API Endpoints
+The core works: runs, cancellation, timeouts, recovery after a crash, playbook
+storage, providers, redaction, an audit trail and a checked token. Not yet: the
+REST surface, cloud providers, execution-environment isolation, and a license
+file — see the roadmap.
 
-- `POST /generate-playbook/` - Generate playbook with LLM
-- `POST /add-task/` - Add traditional playbook task
-- `DELETE /remove-task/{task_id}` - Remove scheduled task
-- `GET /templates/` - List available templates
-- `POST /templates/` - Create new template
-- `GET /templates/{id}` - Get template details
-- `POST /templates/{id}/render` - Render template with variables
-- `DELETE /templates/{id}` - Delete template
+## License
 
-## Development
-
-```bash
-# Run tests
-make test
-
-# Lint code
-make lint
-
-# Format code
-make format
-
-# Check everything
-make check
-```
-
-## Environment Variables
-
-- `LLM_PROVIDER`: LLM provider (openai/anthropic)
-- `OPENAI_API_KEY`: OpenAI API key
-- `ANTHROPIC_API_KEY`: Anthropic API key
-- `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string
-
-
+None yet, which means nobody may legally use, modify or redistribute this.
+Apache-2.0 is intended; adding it is blocked on deciding who holds the copyright.
