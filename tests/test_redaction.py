@@ -4,6 +4,7 @@ import pytest
 
 from ansible_mcp.core import Executor, SubmitRequest, TaskManager, redact, redact_variables
 from ansible_mcp.core.redaction import PLACEHOLDER, is_secret_name, secret_values
+from ansible_mcp.db import TaskStatus
 
 ECHOING_PLAYBOOK = """---
 - name: Echo a secret the careless way
@@ -146,3 +147,38 @@ def test_a_secret_in_ansible_json_output_is_redacted():
 
     assert "hunter2" not in redacted
     assert "root" in redacted
+
+
+async def test_a_failure_message_is_redacted_with_the_runs_own_secrets(
+    session_factory,
+    tmp_path,
+    local_inventory,
+):
+    """The pattern pass cannot catch a bare value.
+
+    _finish redacted with patterns only, so a secret appearing without a
+    secret-looking name beside it would have survived. Reported by review; no
+    live leak was reproduced, because the usual message is a one-line summary --
+    this pins the path that carries an exception's text.
+    """
+    exploding = Executor(tmp_path / "tasks")
+
+    async def fail_with_the_secret(*_args, **_kwargs):
+        message = "connection refused for postgres://user:hunter2@db"
+        raise RuntimeError(message)
+
+    exploding.run = fail_with_the_secret
+    manager = TaskManager(session_factory, exploding)
+
+    task_id = await manager.submit(
+        SubmitRequest(
+            playbook="- hosts: all",
+            inventory=local_inventory,
+            variables={"db_password": "hunter2"},
+        ),
+    )
+    task = await manager.wait(task_id, timeout=30)
+
+    assert task.status is TaskStatus.FAILED
+    assert "hunter2" not in task.error_message
+    assert PLACEHOLDER in task.error_message

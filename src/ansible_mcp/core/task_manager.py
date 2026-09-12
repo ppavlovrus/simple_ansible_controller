@@ -330,6 +330,7 @@ class TaskManager:
                 result.exit_code,
                 result.error_message,
                 artifacts_dir=str(result.run_dir),
+                secrets=secret_values(dict(request.variables)),
             )
         except asyncio.CancelledError:
             # Reached on shutdown, or when a queued task is cancelled after it
@@ -344,6 +345,7 @@ class TaskManager:
                 TaskStatus.FAILED,
                 None,
                 f"internal error: {type(error).__name__}: {error}",
+                secrets=secret_values(dict(request.variables)),
             )
 
     async def _run(
@@ -393,14 +395,22 @@ class TaskManager:
         exit_code: int | None,
         error_message: str | None,
         artifacts_dir: str | None = None,
+        secrets: tuple[str, ...] = (),
     ) -> None:
-        """Write down how a task ended."""
+        """Write down how a task ended.
+
+        The message is redacted with the run's own secret values as well as the
+        generic patterns. In practice the message is a one-line summary from
+        ansible-runner, but the path that reports an exception can carry anything
+        the library put in it, and a value with no secret-looking name beside it
+        is exactly what the patterns cannot catch.
+        """
         values: dict[str, Any] = {
             "status": status,
             "finished_at": datetime.now(UTC),
             "exit_code": exit_code,
             # A failure message can quote the command that failed, password and all.
-            "error_message": redact(error_message) if error_message else None,
+            "error_message": redact(error_message, secrets) if error_message else None,
         }
         if artifacts_dir is not None:
             values["artifacts_dir"] = artifacts_dir
