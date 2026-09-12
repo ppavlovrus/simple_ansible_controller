@@ -11,6 +11,7 @@ own snapshot (ADR-0005).
 
 from __future__ import annotations
 
+import textwrap
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -39,6 +40,17 @@ class StoredPlaybook:
     updated_at: str
 
 
+def normalize(content: str) -> str:
+    """Strip a common indent from a playbook without changing its meaning.
+
+    A playbook copied out of a quoted block, or assembled by an agent from a
+    prompt, often arrives with every line shifted right by the same amount. That
+    is not a YAML error worth refusing: removing the shared prefix leaves an
+    identical document.
+    """
+    return textwrap.dedent(content).strip("\n") + "\n"
+
+
 def validate_playbook(content: str) -> None:
     """Check that text is at least shaped like a playbook.
 
@@ -56,11 +68,11 @@ def validate_playbook(content: str) -> None:
         message = "the playbook is empty"
         raise InvalidPlaybookError(message)
 
+    content = normalize(content)
     try:
         parsed = yaml.safe_load(content)
     except yaml.YAMLError as error:
-        message = f"the playbook is not valid YAML: {error}"
-        raise InvalidPlaybookError(message) from error
+        raise InvalidPlaybookError(_explain(error, content)) from error
 
     if not isinstance(parsed, list):
         message = f"a playbook must be a list of plays, got {type(parsed).__name__}"
@@ -103,6 +115,7 @@ class PlaybookStore:
             InvalidPlaybookError: if the content is not a playbook.
         """
         validate_playbook(content)
+        content = normalize(content)
 
         async with self._session_factory() as session:
             existing = await session.get(Playbook, name)
@@ -151,6 +164,28 @@ class PlaybookStore:
             )
             await session.commit()
             return bool(result.rowcount)
+
+
+def _explain(error: yaml.YAMLError, content: str) -> str:
+    """Turn a parser error into something the caller can act on.
+
+    A raw PyYAML message points at a line number in a document the caller cannot
+    see, which is why an agent handed one tends to retry the identical call.
+    Quoting the offending line, and naming the usual cause, gives it something to
+    change.
+    """
+    mark = getattr(error, "problem_mark", None)
+    detail = getattr(error, "problem", None) or "could not be parsed"
+    if mark is None:
+        return f"the playbook is not valid YAML: {detail}"
+
+    lines = content.splitlines()
+    quoted = lines[mark.line].rstrip() if 0 <= mark.line < len(lines) else ""
+    return (
+        f"the playbook is not valid YAML: {detail} on line {mark.line + 1}: {quoted!r}. "
+        f"A playbook is a list of plays, so the first line should start with '- ' and every "
+        f"line below it must be indented consistently relative to it."
+    )
 
 
 def _to_stored(playbook: Playbook) -> StoredPlaybook:

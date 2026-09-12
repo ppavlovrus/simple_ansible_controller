@@ -179,3 +179,82 @@ def test_the_threshold_decides_the_exit_code(passes, total, threshold, expected_
 
     capsys.readouterr()
     assert code == expected_code
+
+
+# The chain harness: ordering, allowlists and state checks. No model involved.
+
+
+def chain(**overrides):
+    from chain_runner import Chain
+
+    defaults = {
+        "id": "example",
+        "language": "en",
+        "task": "do the multi-step thing",
+        "allow": ["run_playbook", "get_task_status"],
+    }
+    return Chain(**{**defaults, **overrides})
+
+
+def test_the_chain_file_parses():
+    from chain_runner import load_chains
+
+    chains = load_chains()
+
+    assert len(chains) >= 3
+    for entry in chains:
+        assert entry.require, f"{entry.id} requires no step, so it cannot fail"
+        assert entry.allow, f"{entry.id} allows no tool"
+        # Every required step must be allowed, or the scenario is unpassable.
+        assert set(entry.require) <= set(entry.allow), entry.id
+
+
+def test_required_steps_may_have_gaps_between_them():
+    from chain_runner import contains_in_order
+
+    assert contains_in_order(
+        ["save_playbook", "list_playbooks", "run_playbook"], ["save_playbook", "run_playbook"]
+    )
+
+
+def test_required_steps_out_of_order_do_not_count():
+    from chain_runner import contains_in_order
+
+    assert not contains_in_order(
+        ["run_playbook", "save_playbook"], ["save_playbook", "run_playbook"]
+    )
+
+
+def test_a_missing_required_step_does_not_count():
+    from chain_runner import contains_in_order
+
+    assert not contains_in_order(["save_playbook"], ["save_playbook", "run_playbook"])
+
+
+def test_expectations_compare_against_observed_state():
+    from chain_runner import _check_expectations
+
+    state = {
+        "tasks_succeeded": 1,
+        "tasks_cancelled": 0,
+        "playbooks": {"eval-hello"},
+        "providers": set(),
+    }
+
+    assert _check_expectations({"playbook_stored": "eval-hello", "tasks_succeeded": 1}, state) == []
+    assert _check_expectations({"playbook_stored": "missing"}, state) == [
+        "playbook 'missing' was not stored",
+    ]
+    assert _check_expectations({"tasks_cancelled": 1}, state) == [
+        "tasks_cancelled: wanted 1, ended with 0",
+    ]
+    assert _check_expectations({"provider_configured": "eval-local"}, state) == [
+        "provider 'eval-local' was not configured",
+    ]
+
+
+def test_an_outcome_with_problems_fails():
+    from chain_runner import Outcome
+
+    assert Outcome(chain(), ["run_playbook"], []).passed
+    assert not Outcome(chain(), ["run_playbook"], ["called something forbidden"]).passed

@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from ansible_mcp.providers import ProviderError
+from ansible_mcp.server.coercion import as_mapping
 from ansible_mcp.server.errors import UsageError, confirmed, require
 from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import DELETE, READ, WRITE, Services
@@ -22,7 +23,7 @@ def register(server: MCPServer, services: Services) -> None:
 
     @server.tool(annotations=WRITE)
     @audited
-    async def add_provider(name: str, plugin_type: str, config: dict[str, Any]) -> str:
+    async def add_provider(name: str, plugin_type: str, config: Any = None) -> str:
         """Configure a source of inventories that runs can name.
 
         A provider means a run does not have to carry an inventory: it names the
@@ -51,7 +52,11 @@ def register(server: MCPServer, services: Services) -> None:
         """
         require(bool(name.strip()), "name is empty")
         try:
-            provider = await services.providers.add(name, plugin_type, config)
+            provider = await services.providers.add(
+                name,
+                plugin_type,
+                as_mapping(config, "config"),
+            )
         except ProviderError as error:
             raise UsageError(str(error)) from error
 

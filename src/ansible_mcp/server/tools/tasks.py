@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from ansible_mcp.core import SubmitRequest
 from ansible_mcp.db import Task, TaskStatus
 from ansible_mcp.providers import ProviderError
+from ansible_mcp.server.coercion import as_list, as_mapping, as_text, as_yaml_text
 from ansible_mcp.server.errors import UsageError, confirmed, found, require
 from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import (
@@ -52,19 +53,20 @@ def register(server: MCPServer, services: Services) -> None:
     @server.tool(annotations=EXECUTE)
     @audited
     async def run_playbook(
-        playbook: str | None = None,
+        playbook: Any = None,
         playbook_name: str | None = None,
-        inventory: str | None = None,
+        inventory: Any = None,
         provider: str | None = None,
-        variables: dict[str, Any] | None = None,
-        tags: list[str] | None = None,
+        variables: Any = None,
+        tags: Any = None,
     ) -> str:
         """Run an Ansible playbook against an inventory and return immediately.
 
-        Say what to run, either inline with `playbook` or by naming one already
-        stored with `playbook_name`. Say where to run it, either inline with
-        `inventory` or by naming a configured provider with `provider`, which
-        resolves the inventory when the run starts.
+        Say what to run with exactly one of `playbook` or `playbook_name`, and
+        where to run it with exactly one of `inventory` or `provider`. Passing
+        both of a pair is refused rather than resolved silently, so if a provider
+        was configured for these hosts, name the provider and leave `inventory`
+        out even when the inventory text is also at hand.
 
         The run happens in the background: this returns a task id, and the run is
         followed with get_task_status and get_task_logs. Both the playbook and the
@@ -72,25 +74,43 @@ def register(server: MCPServer, services: Services) -> None:
         can be examined later even if either changes.
 
         Args:
-            playbook: the playbook itself, as YAML text.
+            playbook: the playbook, as YAML text or as the parsed list of plays.
             playbook_name: name of a stored playbook to run instead.
             inventory: the inventory to run against, in INI or YAML format.
             provider: name of a configured provider to take the inventory from.
             variables: extra variables, the equivalent of --extra-vars.
-            tags: run only tasks carrying these tags.
+            tags: run only tasks carrying these tags. Omit for all of them.
 
         Returns:
             A JSON object with task_id and the initial status. The run is not
             finished when this returns.
         """
+        # Both sources present is refused rather than resolved by precedence: a
+        # run that quietly used the other source than the caller believed is a
+        # worse outcome than a refusal that says which argument to drop.
         require(
             bool(playbook) != bool(playbook_name),
-            "pass exactly one of playbook (the YAML) or playbook_name (a stored playbook)",
+            "both playbook and playbook_name were given; drop one. Pass playbook with the "
+            "YAML to run it directly, or playbook_name alone to run a stored one."
+            if playbook and playbook_name
+            else "neither playbook nor playbook_name was given; pass exactly one. Use playbook "
+            "with the YAML text, or playbook_name for a playbook already stored here.",
         )
         require(
             bool(inventory) != bool(provider),
-            "pass exactly one of inventory (the text) or provider (a configured provider)",
+            "both inventory and provider were given; drop one. Pass provider alone to take the "
+            "inventory from that configured source, or inventory alone with the text."
+            if inventory and provider
+            else "neither inventory nor provider was given; pass exactly one. Use inventory with "
+            "the INI or YAML text, or provider with the name of a configured source.",
         )
+
+        # An agent often sends the parsed document where text is declared, or an
+        # empty string where a list is; those mean the same thing and are taken.
+        playbook = as_yaml_text(playbook, "playbook") if playbook else None
+        inventory = as_text(inventory, "inventory") if inventory else None
+        variable_values = as_mapping(variables, "variables")
+        tag_values = as_list(tags, "tags")
 
         if playbook_name:
             stored = found(
@@ -117,8 +137,8 @@ def register(server: MCPServer, services: Services) -> None:
                 inventory=resolved,
                 playbook_name=playbook_name,
                 provider_name=provider,
-                variables=variables or {},
-                tags=tags or [],
+                variables=variable_values,
+                tags=tag_values,
             ),
         )
         return json.dumps(

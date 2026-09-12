@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ansible_mcp.core import InvalidPlaybookError
+from ansible_mcp.server.coercion import as_list, as_yaml_text
 from ansible_mcp.server.errors import UsageError, confirmed, found, require
 from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import (
@@ -29,9 +30,9 @@ def register(server: MCPServer, services: Services) -> None:
     @audited
     async def save_playbook(
         name: str,
-        content: str,
+        content: Any = None,
         description: str | None = None,
-        tags: list[str] | None = None,
+        tags: Any = None,
     ) -> str:
         """Store a playbook under a name so runs can refer to it.
 
@@ -47,7 +48,7 @@ def register(server: MCPServer, services: Services) -> None:
 
         Args:
             name: how the playbook will be addressed later.
-            content: the playbook itself, as YAML text.
+            content: the playbook, as YAML text or as the parsed list of plays.
             description: what it does, for whoever lists the store next.
             tags: labels to group playbooks by.
 
@@ -55,8 +56,14 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with the stored name and when it was updated.
         """
         require(bool(name.strip()), "name is empty")
+        require(bool(content), "content is empty: pass the playbook YAML")
         try:
-            stored = await services.playbooks.save(name, content, description, tags)
+            stored = await services.playbooks.save(
+                name,
+                as_yaml_text(content, "content"),
+                description,
+                as_list(tags, "tags"),
+            )
         except InvalidPlaybookError as error:
             raise UsageError(str(error)) from error
 
