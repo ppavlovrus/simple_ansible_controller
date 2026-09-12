@@ -6,7 +6,8 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from ansible_mcp.providers import ProviderError
-from ansible_mcp.server.errors import UsageError, confirmed, require, tool_errors
+from ansible_mcp.server.errors import UsageError, confirmed, require
+from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import DELETE, READ, WRITE, Services
 
 if TYPE_CHECKING:
@@ -17,9 +18,10 @@ INVENTORY_PREVIEW_LINES = 80
 
 def register(server: MCPServer, services: Services) -> None:
     """Register the provider tools."""
+    audited = instrumented(services.audit)
 
     @server.tool(annotations=WRITE)
-    @tool_errors
+    @audited
     async def add_provider(name: str, plugin_type: str, config: dict[str, Any]) -> str:
         """Configure a source of inventories that runs can name.
 
@@ -58,7 +60,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def list_providers() -> str:
         """List configured providers and the plugin types available to configure.
 
@@ -91,7 +93,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def get_inventory(provider: str, full: bool = False) -> str:
         """Ask a configured provider what hosts it currently resolves to.
 
@@ -125,7 +127,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=DELETE)
-    @tool_errors
+    @audited
     async def delete_provider(name: str, confirm: bool = False) -> str:
         """Remove a provider's configuration.
 

@@ -63,5 +63,9 @@ async def create_schema(engine: AsyncEngine) -> None:
     they are worth; this is revisited before the first release that other people
     upgrade.
     """
+    # Importing registers the audit table on the shared metadata; without it
+    # create_all would quietly produce a database missing one table.
+    from ansible_mcp.core import audit as _audit  # noqa: F401
+
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

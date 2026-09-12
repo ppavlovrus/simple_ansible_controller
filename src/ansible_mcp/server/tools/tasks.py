@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING, Any
 from ansible_mcp.core import SubmitRequest
 from ansible_mcp.db import Task, TaskStatus
 from ansible_mcp.providers import ProviderError
-from ansible_mcp.server.errors import UsageError, confirmed, found, require, tool_errors
+from ansible_mcp.server.errors import UsageError, confirmed, found, require
+from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import (
     DEFAULT_LOG_LINES,
     EXECUTE,
@@ -46,9 +47,10 @@ def _summarize(task: Task) -> dict[str, Any]:
 
 def register(server: MCPServer, services: Services) -> None:
     """Register the task tools."""
+    audited = instrumented(services.audit)
 
     @server.tool(annotations=EXECUTE)
-    @tool_errors
+    @audited
     async def run_playbook(
         playbook: str | None = None,
         playbook_name: str | None = None,
@@ -128,7 +130,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def get_task_status(task_id: str) -> str:
         """Report how a run is doing, or how it ended.
 
@@ -147,7 +149,7 @@ def register(server: MCPServer, services: Services) -> None:
         return json.dumps(_summarize(task))
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def get_task_logs(task_id: str, tail: int = DEFAULT_LOG_LINES) -> str:
         """Read what a run printed, most recent lines last.
 
@@ -181,7 +183,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=STOP)
-    @tool_errors
+    @audited
     async def cancel_task(task_id: str, confirm: bool = False) -> str:
         """Stop a run that is queued or in progress.
 
@@ -211,7 +213,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def list_tasks(status: str | None = None, limit: int = 20) -> str:
         """List recent runs, newest first.
 

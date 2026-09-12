@@ -6,6 +6,11 @@ can be run (``Playbook``) and where it can be run (``ProviderConfig``).
 A task stores the playbook and the inventory as text rather than referencing
 them, so a finished run stays reproducible after either has changed. See
 ADR-0005.
+
+One consequence is worth stating plainly: ``Task.variables`` holds what a run was
+given, secrets included, because a run cannot be reproduced without them.
+Redaction keeps those values out of anything the service returns, but the
+database file itself is a sensitive artifact and should be treated like one.
 """
 
 from __future__ import annotations

@@ -1,25 +1,19 @@
-"""Turning failures into something an agent can act on.
+"""How a tool refuses a call.
 
-A tool that raises leaks a traceback into the agent's context: long, mostly
-irrelevant, and impossible to act on. Every tool is wrapped so a failure arrives
-as one sentence saying what went wrong, flagged as an error by the protocol.
+A refusal is part of a tool's contract: the arguments were wrong, the thing does
+not exist, or a destructive action was not confirmed. The message is written for
+the agent, so it says what to do differently.
+
+Turning an unexpected failure into something readable is the job of
+:mod:`ansible_mcp.server.instrumentation`, which wraps every tool.
 """
 
 from __future__ import annotations
 
-import functools
-import logging
-from typing import TYPE_CHECKING, ParamSpec, TypeVar
+from typing import TypeVar
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-log = logging.getLogger("ansible_mcp.tools")
-
-P = ParamSpec("P")
-R = TypeVar("R")
 T = TypeVar("T")
 
 
@@ -29,28 +23,6 @@ class UsageError(ToolError):
     Raised deliberately by tools. The message is written for the agent, so it
     says what to do differently rather than what failed internally.
     """
-
-
-def tool_errors(function: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-    """Wrap a tool so any failure reaches the agent as a readable message.
-
-    ``UsageError`` passes through as written. Anything else is unexpected: it is
-    logged with its traceback for the operator and summarized in one line for the
-    agent, because a stack trace is not something an agent can act on.
-    """
-
-    @functools.wraps(function)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            return await function(*args, **kwargs)
-        except UsageError:
-            raise
-        except Exception as error:
-            log.exception("tool %s failed", function.__name__)
-            message = f"{function.__name__} failed: {type(error).__name__}: {error}"
-            raise ToolError(message) from error
-
-    return wrapper
 
 
 def require(condition: bool, message: str) -> None:

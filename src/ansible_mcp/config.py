@@ -22,9 +22,8 @@ class Settings(BaseSettings):
     Attributes:
         data_dir: root of the state directory holding the database, playbooks,
             task artifacts and inventories.
-        api_key: bearer token intended for HTTP callers. **Not enforced yet**:
-            nothing checks it against incoming requests, which is why HTTP is
-            restricted to loopback (ADR-0010).
+        api_key: bearer token every HTTP request is checked against. Required to
+            serve beyond loopback; the health probe is exempt (ADR-0012).
         host: address the HTTP transport binds to.
         port: port the HTTP transport binds to.
         log_level: root log level.

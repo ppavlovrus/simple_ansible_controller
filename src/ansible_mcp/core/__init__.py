@@ -7,6 +7,7 @@ from .playbook_store import (
     StoredPlaybook,
     validate_playbook,
 )
+from .redaction import redact, redact_variables, secret_values
 from .task_manager import SubmitRequest, TaskManager
 
 __all__ = [
@@ -19,5 +20,8 @@ __all__ = [
     "StoredPlaybook",
     "SubmitRequest",
     "TaskManager",
+    "redact",
+    "redact_variables",
+    "secret_values",
     "validate_playbook",
 ]

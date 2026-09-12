@@ -6,7 +6,8 @@ import json
 from typing import TYPE_CHECKING
 
 from ansible_mcp.core import InvalidPlaybookError
-from ansible_mcp.server.errors import UsageError, confirmed, found, require, tool_errors
+from ansible_mcp.server.errors import UsageError, confirmed, found, require
+from ansible_mcp.server.instrumentation import instrumented
 from ansible_mcp.server.tools._shared import (
     DELETE,
     MAX_PLAYBOOKS_PER_CALL,
@@ -22,9 +23,10 @@ if TYPE_CHECKING:
 
 def register(server: MCPServer, services: Services) -> None:
     """Register the playbook tools."""
+    audited = instrumented(services.audit)
 
     @server.tool(annotations=WRITE)
-    @tool_errors
+    @audited
     async def save_playbook(
         name: str,
         content: str,
@@ -65,7 +67,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def list_playbooks(limit: int = 50) -> str:
         """List stored playbooks, alphabetically.
 
@@ -100,7 +102,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=READ)
-    @tool_errors
+    @audited
     async def get_playbook(name: str, full: bool = False) -> str:
         """Read a stored playbook.
 
@@ -138,7 +140,7 @@ def register(server: MCPServer, services: Services) -> None:
         )
 
     @server.tool(annotations=DELETE)
-    @tool_errors
+    @audited
     async def delete_playbook(name: str, confirm: bool = False) -> str:
         """Remove a stored playbook.
 

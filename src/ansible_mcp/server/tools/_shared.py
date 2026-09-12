@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
     from ansible_mcp.core import PlaybookStore, TaskManager
+    from ansible_mcp.core.audit import AuditLog
     from ansible_mcp.providers import Providers
 
 # Hints a client uses to decide how much rope to give a call. "Destructive" here
@@ -34,3 +35,4 @@ class Services:
     manager: TaskManager
     playbooks: PlaybookStore
     providers: Providers
+    audit: AuditLog

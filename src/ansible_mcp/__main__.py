@@ -6,6 +6,7 @@ import logging
 
 from ansible_mcp.config import get_settings
 from ansible_mcp.server import build_application, ensure_safe_to_expose
+from ansible_mcp.server.http import serve_http
 
 
 def main() -> None:
@@ -21,11 +22,7 @@ def main() -> None:
     if settings.transport == "stdio":
         application.server.run(transport="stdio")
     else:
-        application.server.run(
-            transport="streamable-http",
-            host=settings.host,
-            port=settings.port,
-        )
+        serve_http(application, settings)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted (2026-09-12). Refines the startup gate of ADR-0007 and is superseded
-once token verification exists.
+Superseded by [ADR-0012](0012-static-bearer-token-for-http.md) (2026-09-12).
+Token verification now exists, so the loopback restriction it describes is no
+longer in force. Kept for the reasoning, which still explains why an unverified
+key must not buy a public bind.
 
 ## Context
 

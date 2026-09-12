@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import select, update
 
 from ansible_mcp.core.executor import Cancellation, RunRequest
+from ansible_mcp.core.redaction import redact, secret_values
 from ansible_mcp.db import Task, TaskStatus
 
 if TYPE_CHECKING:
@@ -164,13 +165,20 @@ class TaskManager:
             return list(await session.scalars(query))
 
     async def read_output(self, task_id: str, tail: int | None = None) -> str:
-        """Return what the run has written so far.
+        """Return what the run has written so far, with secrets removed.
 
         The read happens on a worker thread: Ansible output reaches tens of
         megabytes, and reading that on the event loop would stall every other
         call while one agent fetches logs.
+
+        Redaction uses the run's own variables, so a password this run was given
+        is removed from the output even when the playbook echoed it without
+        ``no_log``.
         """
-        return await asyncio.to_thread(self._executor.read_output, task_id, tail)
+        task = await self.get(task_id)
+        secrets = secret_values(dict(task.variables)) if task else ()
+        output = await asyncio.to_thread(self._executor.read_output, task_id, tail)
+        return redact(output, secrets)
 
     async def cancel(self, task_id: str) -> bool:
         """Ask a task to stop.
@@ -310,7 +318,8 @@ class TaskManager:
             "status": status,
             "finished_at": datetime.now(UTC),
             "exit_code": exit_code,
-            "error_message": error_message,
+            # A failure message can quote the command that failed, password and all.
+            "error_message": redact(error_message) if error_message else None,
         }
         if artifacts_dir is not None:
             values["artifacts_dir"] = artifacts_dir
