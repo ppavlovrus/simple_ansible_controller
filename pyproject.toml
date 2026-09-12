@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 
+[project.scripts]
+ansible-mcp = "ansible_mcp.__main__:main"
+
 [tool.poetry]
 packages = [{ include = "ansible_mcp", from = "src" }]
 
@@ -36,6 +39,7 @@ requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.taskipy.tasks]
+serve = "python -m ansible_mcp"
 tests = "pytest"
 lint = "ruff check . && ruff format --check . && mypy src"
 fmt = "ruff format . && ruff check --fix ."
