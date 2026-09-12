@@ -165,3 +165,4 @@ cython_debug/
 /tests/fixtures/keys/id_rsa.pub
 /ansible_test_host/keys/id_rsa
 /ansible_test_host/keys/id_rsa.pub
+/dist/

@@ -53,6 +53,9 @@ fmt = "ruff format . && ruff check --fix ."
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: needs the SSH test hosts from docker-compose.yml",
+]
 
 [tool.ruff]
 line-length = 100

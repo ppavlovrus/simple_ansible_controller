@@ -179,3 +179,33 @@ async def test_health_counts_what_has_happened(served, local_playbook, local_inv
 
     assert reported["tasks"]["success"] == 1
     assert over_http["tasks"]["success"] == 1
+
+
+async def test_a_loopback_bind_without_a_key_is_served_unguarded(tmp_path, caplog):
+    """The gate and the application must agree about loopback.
+
+    They did not: the gate allowed it, the application refused it, so an
+    unauthenticated loopback deployment passed startup and then died. Found by
+    installing the package, not by a test, which is why there is one now.
+    """
+    settings = Settings(
+        data_dir=tmp_path / "state",
+        transport="streamable-http",
+        host="127.0.0.1",
+        api_key=None,
+    )
+    application = build_application(settings)
+    await create_schema(application.engine)
+
+    ensure_safe_to_expose(settings)
+    app = build_http_app(application, settings)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get(HEALTH_PATH)
+
+    assert response.status_code == 200
+    # Unguarded is a deliberate choice here, so it is said out loud.
+    assert any("unguarded" in record.message for record in caplog.records)
+
+    await application.engine.dispose()

@@ -1,0 +1,39 @@
+[Unit]
+Description=Minimal Ansible controller with an MCP interface
+Documentation=https://github.com/ppavlovrus/simple_ansible_controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=ansible-mcp
+Group=ansible-mcp
+
+# Settings live here rather than in this unit, so an operator edits one file and
+# never has to override a unit to change a port.
+EnvironmentFile=/etc/ansible-mcp/ansible-mcp.env
+ExecStart=/opt/ansible-mcp/venv/bin/ansible-mcp
+
+Restart=on-failure
+RestartSec=5s
+
+# The service executes playbooks, which is exactly why it gets no more of the
+# host than it needs. ProtectSystem=strict makes everything read-only except
+# the paths named below.
+StateDirectory=ansible-mcp
+ConfigurationDirectory=ansible-mcp
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/lib/ansible-mcp
+
+[Install]
+WantedBy=multi-user.target

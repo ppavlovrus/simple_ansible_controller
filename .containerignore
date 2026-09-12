@@ -1,0 +1,19 @@
+# Only the wheel inputs belong in the build context.
+.git
+.github
+.venv
+.ruff_cache
+.mypy_cache
+.pytest_cache
+__pycache__
+*.pyc
+data
+docs
+evals
+tests
+ansible_test_host
+docker-compose.yml
+Makefile
+packaging
+*.md
+!README.md

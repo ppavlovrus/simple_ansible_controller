@@ -29,3 +29,31 @@ jobs:
 
       - name: Tests
         run: poetry run task tests
+
+  image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # A Containerfile that no longer builds is a broken release, and nothing
+      # else in CI would notice.
+      - name: Build the image
+        run: docker build -f Containerfile -t ansible-mcp:ci .
+
+      - name: Refuse to serve unauthenticated
+        run: |
+          if docker run --rm ansible-mcp:ci; then
+            echo "the image started without an API key, which ADR-0012 forbids" >&2
+            exit 1
+          fi
+
+      - name: Serve, and answer the health probe
+        run: |
+          docker run -d --name ci -p 8080:8080 -e ANSIBLE_MCP_API_KEY=ci-secret ansible-mcp:ci
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs ci
+          exit 1

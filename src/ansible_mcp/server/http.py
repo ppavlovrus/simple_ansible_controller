@@ -12,6 +12,7 @@ should not need a credential, and it reveals nothing beyond counts.
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from typing import TYPE_CHECKING, Any
 
@@ -21,12 +22,15 @@ from sqlalchemy import func, select
 from ansible_mcp import __version__
 from ansible_mcp.core.audit import AuditEntry
 from ansible_mcp.db import Task, TaskStatus
+from ansible_mcp.server.app import LOOPBACK_ADDRESSES
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
 
     from ansible_mcp.config import Settings
     from ansible_mcp.server.app import Application
+
+log = logging.getLogger("ansible_mcp.http")
 
 HEALTH_PATH = "/healthz"
 BEARER_PREFIX = "bearer "
@@ -115,9 +119,13 @@ async def health(application: Application) -> dict[str, Any]:
 def build_http_app(application: Application, settings: Settings) -> ASGIApp:
     """Return the ASGI application to serve, health probe and auth included.
 
+    A loopback bind without a key is served unguarded, which is what ADR-0012
+    permits: reaching it already requires being on the machine. Any other address
+    requires the key, and is refused without one rather than warned about.
+
     Raises:
-        RuntimeError: if no API key is configured; serving unauthenticated is
-            refused rather than warned about (ADR-0012).
+        RuntimeError: if the endpoint would be reachable off the machine with
+            nothing to check callers against.
     """
     from starlette.responses import JSONResponse
 
@@ -129,11 +137,19 @@ def build_http_app(application: Application, settings: Settings) -> ASGIApp:
     app: ASGIApp = application.server.streamable_http_app(host=settings.host)
 
     if settings.api_key is None:
-        message = (
-            "refusing to serve HTTP without ANSIBLE_MCP_API_KEY: anyone able to reach "
-            "the port could run playbooks on your hosts"
+        if settings.host not in LOOPBACK_ADDRESSES:
+            message = (
+                "refusing to serve HTTP on "
+                f"{settings.host} without ANSIBLE_MCP_API_KEY: anyone able to reach the port "
+                "could run playbooks on your hosts"
+            )
+            raise RuntimeError(message)
+        log.warning(
+            "serving %s unguarded: no ANSIBLE_MCP_API_KEY is set, so every local process can "
+            "run playbooks through this endpoint",
+            settings.host,
         )
-        raise RuntimeError(message)
+        return app
 
     return BearerTokenMiddleware(app, settings.api_key, unprotected=(HEALTH_PATH,))
 
