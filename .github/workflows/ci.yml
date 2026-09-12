@@ -6,54 +6,235 @@ on:
   pull_request:
     branches: [main]
 
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  POETRY_VERSION: "2.3.3"
+
 jobs:
   check:
+    name: Tests on ${{ matrix.python }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject promises >=3.11, so every version that claim covers is run.
+        # An untested promise is the kind that breaks for someone else.
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          # Keyed on poetry.lock, so a dependency change invalidates it and
+          # nothing else does.
+          cache: poetry
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Tests
+        run: poetry run task tests
+
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        run: pipx install poetry
+          python-version: "3.11"
+          cache: poetry
 
       - name: Install dependencies
         run: poetry install
 
+      # The same command a developer runs: ruff check, ruff format --check, mypy.
       - name: Lint
         run: poetry run task lint
 
-      - name: Tests
-        run: poetry run task tests
+  integration:
+    name: Playbooks over SSH
+    runs-on: ubuntu-latest
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: poetry
+
+      - name: Install dependencies
+        run: poetry install
+
+      # Everything else runs against the control node with connection: local.
+      # This is the only place SSH, a remote interpreter and two hosts at once
+      # are exercised, and it is where a real Ansible regression would show.
+      - name: Bring up the test hosts
+        run: |
+          make keygen
+          docker compose up -d --wait
+
+      - name: Run the SSH tests
+        run: poetry run pytest tests/test_integration_ssh.py -v
+
+      - name: Show what the hosts logged, if that failed
+        if: failure()
+        run: docker compose logs --tail 50
 
   image:
+    name: Container image
     runs-on: ubuntu-latest
+    needs: check
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - containerfile: Containerfile
+            tag: ci
+          - containerfile: Containerfile.alpine
+            tag: ci-alpine
 
     steps:
       - uses: actions/checkout@v4
 
       # A Containerfile that no longer builds is a broken release, and nothing
       # else in CI would notice.
-      - name: Build the image
-        run: docker build -f Containerfile -t ansible-mcp:ci .
+      - name: Build
+        run: docker build -f ${{ matrix.containerfile }} -t ansible-mcp:${{ matrix.tag }} .
 
+      # ADR-0012: an image that serves an unauthenticated endpoint is the one
+      # failure worth a dedicated check.
       - name: Refuse to serve unauthenticated
         run: |
-          if docker run --rm ansible-mcp:ci; then
+          if docker run --rm ansible-mcp:${{ matrix.tag }}; then
             echo "the image started without an API key, which ADR-0012 forbids" >&2
             exit 1
           fi
 
-      - name: Serve, and answer the health probe
+      - name: Serve, and run a playbook through it
         run: |
-          docker run -d --name ci -p 8080:8080 -e ANSIBLE_MCP_API_KEY=ci-secret ansible-mcp:ci
-          for _ in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/healthz; then exit 0; fi
+          docker run -d --name ci-${{ matrix.tag }} -p 8080:8080 \
+            -e ANSIBLE_MCP_API_KEY=ci-secret ansible-mcp:${{ matrix.tag }}
+
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then break; fi
             sleep 2
           done
-          docker logs ci
-          exit 1
+          curl -fsS http://127.0.0.1:8080/healthz
+
+          # Past the health probe: prove the image can actually execute
+          # something, which is the whole point of shipping it.
+          curl -fsS -o /dev/null -w '%{http_code}\n' \
+            -X POST http://127.0.0.1:8080/mcp \
+            -H 'Authorization: Bearer ci-secret' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","method":"ping","id":1}' | grep -qv '^401$'
+
+      - name: Show the container log, if that failed
+        if: failure()
+        run: docker logs ci-${{ matrix.tag }} || true
+
+  package:
+    name: Debian package
+    runs-on: ubuntu-latest
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: packaging/build-deb.sh amd64
+
+      # The package carries a virtualenv, and a virtualenv is not relocatable:
+      # one built at the wrong prefix installs cleanly and will not start. That
+      # happened, so it is checked here rather than trusted.
+      - name: Install it, start it, remove it
+        run: |
+          docker run --rm -v "$PWD/dist:/pkg:ro" debian:bookworm-slim bash -euxo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update >/dev/null
+            apt-get install --no-install-recommends --yes python3 openssh-client curl >/dev/null
+
+            dpkg -i /pkg/ansible-mcp_*_amd64.deb
+
+            head -1 /opt/ansible-mcp/venv/bin/ansible-mcp | grep -qx "#!/opt/ansible-mcp/venv/bin/python3"
+
+            su -s /bin/sh ansible-mcp -c "
+              ANSIBLE_MCP_TRANSPORT=streamable-http ANSIBLE_MCP_HOST=127.0.0.1 \
+              ANSIBLE_MCP_PORT=8099 ANSIBLE_MCP_DATA_DIR=/var/lib/ansible-mcp \
+              nohup /opt/ansible-mcp/venv/bin/ansible-mcp >/tmp/log 2>&1 &"
+
+            for _ in $(seq 1 20); do
+              if curl -fsS http://127.0.0.1:8099/healthz >/dev/null; then break; fi
+              sleep 2
+            done
+            curl -fsS http://127.0.0.1:8099/healthz || { cat /tmp/log; exit 1; }
+
+            dpkg -r ansible-mcp
+            # State survives a remove: it holds the task history.
+            test -d /var/lib/ansible-mcp
+            test ! -d /opt/ansible-mcp
+          '
+
+      - name: Keep the package for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansible-mcp-deb-amd64
+          path: dist/*.deb
+          retention-days: 14
+
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The prototype's docs left ten dead links behind, and nobody noticed for
+      # months. Cheap to check, so it is checked.
+      - name: Every relative link resolves
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          broken = []
+          for markdown in pathlib.Path(".").rglob("*.md"):
+              if any(part in (".git", ".venv", "dist") for part in markdown.parts):
+                  continue
+              for link in re.findall(r"\]\(([^)#]+?)(?:#[^)]*)?\)", markdown.read_text()):
+                  if link.startswith(("http", "mailto:")):
+                      continue
+                  if not (markdown.parent / link).resolve().exists():
+                      broken.append(f"{markdown} -> {link}")
+
+          print("\n".join(broken) if broken else "every relative link resolves")
+          sys.exit(1 if broken else 0)
+          PY

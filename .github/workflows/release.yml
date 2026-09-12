@@ -1,0 +1,152 @@
+name: Release
+
+# Tag-driven, because a release is a decision rather than a consequence of
+# pushing to main:
+#
+#   git tag -a v0.2.0 -m "..." && git push origin v0.2.0
+on:
+  push:
+    tags: ["v*"]
+  # Building without publishing, to check the release path itself works.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  packages:
+    name: Debian packages
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The package ships a virtualenv with compiled wheels, so each
+      # architecture is built on its own emulated platform rather than
+      # cross-built.
+      - name: Set up QEMU for the foreign architecture
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build
+        run: packaging/build-deb.sh ${{ matrix.architecture }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.architecture }}
+          path: dist/*.deb
+
+  images:
+    name: Container images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: tags
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A dry run publishes nothing; it only proves the build works.
+            echo "push=false" >>"$GITHUB_OUTPUT"
+            echo "glibc=${image}:dev" >>"$GITHUB_OUTPUT"
+            echo "musl=${image}:dev-alpine" >>"$GITHUB_OUTPUT"
+          else
+            echo "push=true" >>"$GITHUB_OUTPUT"
+            echo "glibc=${image}:${version},${image}:latest" >>"$GITHUB_OUTPUT"
+            echo "musl=${image}:${version}-alpine,${image}:alpine" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push, glibc
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push == 'true' }}
+          tags: ${{ steps.tags.outputs.glibc }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push, musl
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.alpine
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push == 'true' }}
+          tags: ${{ steps.tags.outputs.musl }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    needs: [packages, images]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          # The notes say how to install, not what changed: the commit log
+          # already says what changed, and a generated summary of it adds noise.
+          cat > notes.md <<NOTES
+          ## Install
+
+          Container:
+
+          \`\`\`bash
+          docker run -p 8080:8080 -v ./data:/data \\
+            -e ANSIBLE_MCP_API_KEY="\$(openssl rand -hex 32)" \\
+            ${image}:${version}
+          \`\`\`
+
+          The key is required: the container listens beyond loopback, and the
+          server refuses to serve an unauthenticated endpoint that executes
+          playbooks.
+
+          Debian or Astra Linux:
+
+          \`\`\`bash
+          sudo dpkg -i ansible-mcp_${version}_amd64.deb
+          sudo editor /etc/ansible-mcp/ansible-mcp.env    # set ANSIBLE_MCP_API_KEY
+          sudo systemctl enable --now ansible-mcp
+          \`\`\`
+
+          Connecting a client: [integration/README.md](integration/README.md).
+          NOTES
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            dist/*.deb

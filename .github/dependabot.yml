@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # The MCP SDK is the dependency that moves fastest and breaks most: it has
+  # already renamed its main class and changed its error contract. Weekly, so a
+  # rename is found by a failing CI run rather than by a user.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the things that only ever need a version bump.
+      development:
+        dependency-type: development
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  # Matches Dockerfile* and compose files, so this covers the SSH test host and
+  # docker-compose.yml. It does NOT cover Containerfile or Containerfile.alpine:
+  # the base image there is bumped by hand. Worth re-checking, since support for
+  # that filename has been asked for more than once.
+  - package-ecosystem: docker
+    directories:
+      - /ansible_test_host
+      - /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "image"
