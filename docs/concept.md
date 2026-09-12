@@ -1,9 +1,8 @@
 # Concept: what this project is for
 
-> Status: the code in this repository is still the original prototype (LLM playbook
-> generation, Celery, PostgreSQL, Redis). This document describes the target product —
-> a minimal Ansible controller exposed over MCP — and the reasoning behind it.
-> See [Architecture Overview](architecture.md) for the current implementation.
+> This document is the reasoning: the problem, who it is for, and the trade-offs
+> accepted. What the code actually does now is in
+> [Architecture](architecture.md).
 
 ## The problem
 

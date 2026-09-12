@@ -87,6 +87,38 @@ Each of these is a decision with its reasoning and its rejected alternatives in
 the [decision log](docs/adr/INDEX.md). Outgrowing them is the signal to move to a
 full platform, and that boundary is what keeps this project small.
 
+## Security: the API key is shell access
+
+Read this before exposing the endpoint to anything.
+
+**Whoever holds the API key can run arbitrary code on the controller host**, as
+the user the service runs as. Not through a bug — through the feature. A playbook
+with `hosts: localhost`, or an inventory line carrying
+`ansible_connection=local`, executes on the controller itself, and the controller
+is built to run whatever playbook it is handed: it does not inspect, judge or
+restrict them ([ADR-0004](docs/adr/0004-dumb-executor.md)).
+
+So treat the key exactly as you would an SSH login to that host. One key covers
+the whole instance, there is no per-caller identity, and the audit log records
+what was done rather than by whom.
+
+What reduces the blast radius today:
+
+- Run it as an unprivileged user. The container image and the Debian package
+  both do; a manual install should too.
+- Give that user only the SSH credentials it needs, and no sudo on the
+  controller.
+- Keep the endpoint off the network unless it has to be on it. The stdio
+  transport has no port at all, and a loopback bind needs no key because
+  reaching it already means being on the machine.
+
+What would actually fix it is running each playbook inside a container rather
+than on the host. That is decided and specified in
+[ADR-0008](docs/adr/0008-execution-environments.md) — and **not implemented**:
+the database column exists, the code does not. Until it does, the sentence above
+is the whole security model, and this section is here so nobody discovers it the
+hard way.
+
 ## Working on it
 
 ```bash
