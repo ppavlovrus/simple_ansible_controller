@@ -1,9 +1,15 @@
-.PHONY: all build run test lint format clean add-task generate-playbook list-templates render-template list-tasks get-task
+.PHONY: all keygen build run test lint format clean add-task generate-playbook list-templates render-template list-tasks get-task
 
 DOCKER_COMPOSE = docker-compose
 DC_FILE = -f docker-compose.yml
 
-build:
+# SSH keys are never committed: generate them locally before building.
+# The private key lands in the controller image, the public one in the test host.
+keygen:
+	@test -f src/keys/id_rsa || ssh-keygen -t ed25519 -N '' -C ansible-controller -f src/keys/id_rsa
+	@cp src/keys/id_rsa.pub ansible_test_host/keys/id_rsa.pub
+
+build: keygen
 	$(DOCKER_COMPOSE) $(DC_FILE) build
 
 run:
@@ -56,6 +62,7 @@ get-task:
 
 help:
 	@echo "Usage:"
+	@echo "  make keygen      - Генерация SSH-ключей для контейнеров (локально, не в git)"
 	@echo "  make build       - Сборка Docker контейнеров"
 	@echo "  make run         - Запуск приложения"
 	@echo "  make down        - Остановка и удаление контейнеров"
