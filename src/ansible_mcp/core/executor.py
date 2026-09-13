@@ -165,6 +165,27 @@ class Executor:
         """
         if self._isolation is None:
             return {}
+
+        # ansible-runner automounts the SSH configuration only for its command
+        # APIs; through run() it mounts nothing of the sort and expects the
+        # caller to say what the container needs. Without this the playbook
+        # reaches no host at all: the credentials are on the controller and the
+        # run is not.
+        #
+        # Both destinations, because ssh does not read HOME to find its keys --
+        # it asks the password database for the home of whoever it is running
+        # as. Under podman that is root, under an image with a runner user it is
+        # /home/runner, and ansible-runner's own automount code mounts to both
+        # for the same reason. Setting HOME told ansible where to write and ssh
+        # nothing at all: it went on reading /root/.ssh and offered no key.
+        mounts = []
+        credentials = Path.home() / ".ssh"
+        if credentials.is_dir():
+            mounts += [
+                f"{credentials}:/root/.ssh:ro",
+                f"{credentials}:/home/runner/.ssh:ro",
+            ]
+
         return {
             "process_isolation": True,
             "process_isolation_executable": self._isolation.runtime,
@@ -184,6 +205,7 @@ class Executor:
             # directory". Docker tolerated it, so this only appeared on a real
             # podman host -- which is the supported one.
             "container_options": ["-e", f"HOME={_CONTAINER_RUN_DIR}"],
+            "container_volume_mounts": mounts,
         }
 
     def run_dir(self, task_id: str) -> Path:

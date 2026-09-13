@@ -3,17 +3,25 @@
 #
 #   docker build -f tests/fixtures/ee/Containerfile -t ansible-mcp-ee:test .
 #
-# Two properties make an image usable here, and this file is mostly a
+# Three properties make an image usable here, and this file is mostly a
 # demonstration of them:
 #
 #   * ansible-playbook is on PATH;
 #   * there is no ENTRYPOINT, because ansible-runner appends the command it
-#     wants to run after the image name, and an entrypoint would swallow it.
+#     wants to run after the image name, and an entrypoint would swallow it;
+#   * an ssh client is installed. Ansible shells out to it, and an image
+#     without one reaches nothing but localhost: "Unable to execute ssh command
+#     line on a controller: [Errno 2] No such file or directory: b'ssh'".
+#     Found by pointing an isolated run at a real host.
 #
 # A real deployment points at a fuller execution environment carrying the
 # collections its playbooks need. Nothing here builds or distributes images.
 
 FROM python:3.11-slim
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes openssh-client sshpass \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --disable-pip-version-check "ansible-core>=2.16"
 
