@@ -232,7 +232,11 @@ class Executor:
             Whether it parsed, and what ansible said if it did not.
         """
         with tempfile.TemporaryDirectory(prefix="ansible-mcp-check-") as directory:
-            root = Path(directory)
+            # Resolved, because ansible reports the path it opened: where the
+            # temp directory is reached through a symlink (/var on macOS), the
+            # unresolved spelling matches only part of what ansible printed, and
+            # the scrubbing below leaves the other part behind.
+            root = Path(directory).resolve()
             (root / "project").mkdir()
             (root / "project" / _PLAYBOOK_FILENAME).write_text(playbook)
 

@@ -34,6 +34,16 @@ BROKEN_PLAYBOOK = """---
         msg: broken
 """
 
+# Valid YAML that ansible still refuses, so the failure comes from the play
+# parser rather than the YAML one. Both print where they were reading.
+UNKNOWN_ATTRIBUTE_PLAYBOOK = """---
+- name: Its tasks are misspelled
+  hosts: all
+  tusks:
+    - name: Never reached
+      ansible.builtin.debug: {}
+"""
+
 VALID_PLAYBOOK = """---
 - hosts: all
   gather_facts: false
@@ -160,12 +170,19 @@ async def test_a_broken_playbook_fails_with_the_reason(application):
     assert "YAML" in payload["output"] or "syntax" in payload["output"].lower()
 
 
-async def test_the_syntax_check_does_not_leak_its_temporary_path(application):
-    payload = await call(application, "syntax_check_playbook", playbook=BROKEN_PLAYBOOK)
+@pytest.mark.parametrize("playbook", [BROKEN_PLAYBOOK, UNKNOWN_ATTRIBUTE_PLAYBOOK])
+async def test_the_syntax_check_does_not_leak_its_temporary_path(application, playbook):
+    payload = await call(application, "syntax_check_playbook", playbook=playbook)
 
     # The caller sent text, not a file: an internal path means nothing to it.
     assert "/tmp" not in payload["output"]
     assert "var/folders" not in payload["output"]
+    # Found by running it: the temporary directory is reached through a symlink
+    # on macOS, so ansible printed the resolved path while the scrubbing knew
+    # only the unresolved spelling and matched its tail. The origin line read
+    # "/privatethe playbook" -- a leak, and nonsense. The two assertions above
+    # both passed on that, which is why this one names the surviving prefix.
+    assert "/private" not in payload["output"]
 
 
 async def test_a_stored_playbook_can_be_checked_by_name(application, local_playbook):
