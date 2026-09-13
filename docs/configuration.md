@@ -19,6 +19,9 @@ with a single volume.
 | `ANSIBLE_MCP_RUN_TIMEOUT_SECONDS` | none | How long one run may take before it is cancelled and failed |
 | `ANSIBLE_MCP_KEEP_ARTIFACTS_DAYS` | none | How long a finished run's artifacts are kept; unset keeps them forever |
 | `ANSIBLE_MCP_EXTRA_INVENTORY_DIRS` | none | Extra directories a provider may read inventory files from |
+| `ANSIBLE_MCP_ISOLATION` | `false` | Run every playbook in a container instead of on this host |
+| `ANSIBLE_MCP_CONTAINER_RUNTIME` | `podman` | What launches it; `docker` works and costs more (below) |
+| `ANSIBLE_MCP_EXECUTION_IMAGE` | none | The image runs happen in. Required when isolation is on |
 | `ANSIBLE_MCP_LOG_LEVEL` | `INFO` | Root log level |
 
 ## The two that matter
@@ -36,6 +39,32 @@ openssl rand -hex 32
 **`ANSIBLE_MCP_RUN_TIMEOUT_SECONDS`.** Unset means a playbook can hang forever
 and hold its slot while it does. `ansible-runner` has no timeout of its own, so
 this is the only limit there is.
+
+## Isolation
+
+`ANSIBLE_MCP_ISOLATION=true` moves every playbook into a container, so one that
+says `hosts: localhost` no longer runs on this machine (ADR-0008). It needs a
+container runtime here and an image that is already present, and the service
+refuses to start without either -- exiting 2 and naming what is missing, rather
+than discovering it at the first run.
+
+The operator turns it on for the installation. A run may name a different image
+through `execution_environment`, and cannot decline the sandbox: that is the
+whole point of it being a setting rather than an argument (ADR-0016). Which
+image each run used comes back with its status.
+
+Rootless `podman` is the supported runtime. `docker` is accepted, but it needs
+the service user in the `docker` group, which is root on this host -- the
+privilege the mode exists to avoid handing out.
+
+On the Debian package there are two more pieces, both in the
+[packaging notes](../packaging/README.md#two-shapes-of-the-installation): a
+systemd drop-in, because three of the unit's protections stop podman working,
+and an image in the service user's own storage, because rootless podman keeps
+images per user.
+
+The container image does not offer this mode. Launching containers from inside
+one needs the runtime socket, which is root on the host.
 
 ## What a port gives you
 

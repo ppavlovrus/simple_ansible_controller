@@ -377,6 +377,52 @@ The schema is at `/api/v1/openapi.json`, behind the token like everything else.
 The interactive pages are off on purpose: they load their JavaScript from a CDN,
 and this service is built to run where there may be no route to one.
 
+## Running playbooks in a container
+
+By default a playbook runs on the controller itself, which is why the API key is
+shell access to that machine. Turning isolation on moves execution into a
+container, and `hosts: localhost` then means the container rather than your
+host:
+
+```bash
+ANSIBLE_MCP_ISOLATION=true
+ANSIBLE_MCP_CONTAINER_RUNTIME=podman
+ANSIBLE_MCP_EXECUTION_IMAGE=quay.io/ansible/awx-ee:latest
+```
+
+It is off by default because it needs a container runtime, and this service
+promises to need none. The [packaging notes](../packaging/README.md#two-shapes-of-the-installation)
+have the whole setup for the Debian package: rootless podman, the image in the
+service user's own storage, a systemd drop-in. The container deployment does not
+offer the mode — it is already isolated from its host, and reaching a runtime
+from inside a container means handing over the runtime socket.
+
+You turn it on for the installation; a run cannot turn it off. It may name a
+different image, and what it actually ran in comes back with its status:
+
+```console
+$ curl -s $API/runs/8aeac1ae... -H "$AUTH" | jq -c '{status, execution_environment}'
+{"status":"success","execution_environment":"quay.io/ansible/awx-ee:latest"}
+```
+
+An image works here if it has three things. `ansible-playbook` on its PATH; no
+`ENTRYPOINT` of its own, because the command to run is appended after the image
+name and an entrypoint swallows it; and an ssh client, without which the run
+reaches nothing but localhost. Any execution environment built for AWX has all
+three; `tests/fixtures/ee/Containerfile` in this repository is the smallest
+thing that does.
+
+Two consequences worth knowing before you turn it on. Ansible and its
+collections now come from the image rather than from the host, which is the
+point — reproducibility — and also a new way to fail: a playbook needing a
+collection the image does not carry. And a playbook that legitimately wrote
+something on the controller writes it inside the container instead, where it
+disappears with the run.
+
+What isolation does not do is protect the hosts you manage. Whoever holds the
+API key can still run any playbook against everything your credentials reach.
+It bounds the damage on the controller, not on the fleet.
+
 ## What it will not do
 
 Not missing features — decisions, each with its reasoning in the
@@ -400,8 +446,10 @@ Whoever holds the API key can execute arbitrary code on the controller host: a
 playbook with `hosts: localhost` runs *here*, and the controller runs whatever it
 is handed. Treat the key as an SSH login to that machine. Run the service
 unprivileged, keep the endpoint off the network unless it must be on it, and
-prefer stdio where the client launches the process and no port exists. The full
-version of this, including what would actually fix it, is in the
+prefer stdio where the client launches the process and no port exists. What
+actually fixes the first sentence is turning isolation on, so that "here" is a
+container rather than your host; what it does not fix is the fleet. The full
+version is in the
 [README](../README.md#security-the-api-key-is-shell-access).
 
 ## When something goes wrong
@@ -416,6 +464,7 @@ version of this, including what would actually fix it, is in the
 | `Permission denied (publickey)` in the logs | The credential, not the controller. [Reaching hosts](connecting-hosts.md) has a table of these. |
 | `[redacted]` where you expected a value | Working as intended: secret-looking values are removed from output, messages and the audit log. |
 | Escape codes in the log output | Ansible's colour codes, passed through verbatim. Harmless to an agent; strip them if a human is reading. |
+| `Unable to execute ssh command line on a controller: ... No such file or directory: b'ssh'` | Isolation is on and the execution environment has no ssh client. It needs one; see the image requirements above. |
 | Every run fails with `table tasks has no column named ...` | The data directory was created by an older version, and there are no migrations yet: the schema is created, never altered. Start with a fresh data directory, or move `ansible_mcp.db` aside and lose the run history. A container keeps `/data` in a volume, so this survives a new image. |
 
 The audit trail in the database answers "what was called, how it ended, and which

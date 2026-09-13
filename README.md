@@ -137,14 +137,29 @@ What reduces the blast radius today:
   transport has no port at all, and a loopback bind needs no key because
   reaching it already means being on the machine.
 
-What would actually fix it is running each playbook inside a container rather
-than on the host. That is decided and specified in
-[ADR-0008](docs/adr/0008-execution-environments.md), with
-[ADR-0016](docs/adr/0016-isolation-is-an-installation-choice.md) settling how it
-is switched on — the operator enables it for the installation, a run picks an
-image and cannot decline the sandbox. Both are **not implemented**: the database
-column exists, the code does not. Until it does, the sentence above is the whole
-security model, and this section is here so nobody discovers it the hard way.
+What actually fixes it is running each playbook inside a container rather than
+on the host, and that now exists. It is off by default, because it needs a
+container runtime and this project promises none:
+
+```bash
+ANSIBLE_MCP_ISOLATION=true
+ANSIBLE_MCP_CONTAINER_RUNTIME=podman
+ANSIBLE_MCP_EXECUTION_IMAGE=my-execution-environment:latest
+```
+
+With it on, a playbook that says `hosts: localhost` runs inside a container and
+the controller's filesystem is not there to touch. The operator turns it on for
+the whole installation and a run may pick its image but cannot decline the
+sandbox, which is what stops a caller stepping out of it
+([ADR-0008](docs/adr/0008-execution-environments.md),
+[ADR-0016](docs/adr/0016-isolation-is-an-installation-choice.md)). The
+[packaging notes](packaging/README.md#two-shapes-of-the-installation) have the
+full setup; it is for the Debian package, not the container image, which already
+isolates the whole service from its host.
+
+What it does not change is the fleet: whoever holds the key can still run any
+playbook against every host the controller's credentials reach. Isolation bounds
+the damage on this machine, not on the machines it manages.
 
 ## Working on it
 

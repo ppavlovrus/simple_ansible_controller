@@ -54,6 +54,21 @@ there and is not.
 A worked example lives in `docker-compose.yml` under the `controller` profile: it
 mounts a key, waits for two SSH test hosts and serves on 8080.
 
+## When runs are isolated
+
+With `ANSIBLE_MCP_ISOLATION=true` the playbook runs in a container, so the
+credentials have to be there too. The service mounts its own `~/.ssh` -- for the
+package, `/var/lib/ansible-mcp/.ssh` -- read-only into every run, at both
+`/root/.ssh` and `/home/runner/.ssh`.
+
+Both, because ssh does not read `HOME` to find keys: it asks the password
+database for the home of whoever it is running as, which is root under podman
+and `runner` in images built around that user. A key placed anywhere else is a
+key ssh will not offer, and the run ends at `Permission denied (publickey)`.
+
+Nothing changes on the managed hosts. They see an ordinary SSH connection from
+an ordinary client; the container is on the controller's side of it.
+
 ```bash
 make keygen
 ANSIBLE_MCP_API_KEY=$(openssl rand -hex 32) docker compose --profile controller up -d --wait

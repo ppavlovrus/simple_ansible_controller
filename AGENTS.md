@@ -143,10 +143,10 @@ Worth knowing before you trip over them:
 - One token for the whole instance, so the audit log records what was done and
   not by whom.
 - No license file, which blocks any external use. Apache-2.0 is intended.
-- Execution-environment isolation (ADR-0008, exposed as ADR-0016 describes) is
-  decided but not implemented; the `execution_environment` column exists and is
-  unused. Note before writing it: the operator enables the mode, a run may pick
-  an image but may not turn the mode off.
+- Execution-environment isolation exists but is off by default and is only
+  exercised by `make isolation`, which needs a container runtime. The invariant
+  to keep: the operator enables the mode, a run may pick an image but may never
+  turn the mode off (ADR-0016).
 
 ## What not to do
 

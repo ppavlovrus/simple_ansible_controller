@@ -204,6 +204,10 @@ server, no broker, no worker fleet (ADR-0003).
   semaphore.
 - One token for the whole instance, so the audit log records what was done and
   not by whom (ADR-0012).
+- Playbooks run on this host unless isolation is turned on, and then they run in
+  a container that has to exist on it already. Nothing here pulls or builds
+  images (ADR-0008), and the mode is unavailable in the container deployment,
+  where reaching a runtime would mean its socket.
 - Run variables sit in the database in the clear, because a run cannot be
   reproduced without them. The database file is a sensitive artifact.
 - The same operation has two names: `run_playbook` and `POST /api/v1/runs`. The
