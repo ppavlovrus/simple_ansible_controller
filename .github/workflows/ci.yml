@@ -110,7 +110,15 @@ jobs:
       - name: Start the containerised controller
         env:
           ANSIBLE_MCP_API_KEY: ci-controller-secret
-        run: docker compose --profile controller up -d --wait
+        # The chown is the step docs/connecting-hosts.md tells every Linux user
+        # to take and this example never took: the image runs as uid 1000, the
+        # runner owns the key as 1001, and mode 600 then means the container
+        # cannot read it at all. It comes after the SSH tests above, which need
+        # the key as the runner. Docker Desktop hides this on macOS, which is
+        # why it passed there and only ever failed here.
+        run: |
+          sudo chown 1000 tests/fixtures/keys/id_rsa
+          docker compose --profile controller up -d --wait
 
       - name: Reach the hosts from inside the container
         env:

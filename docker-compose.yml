@@ -53,7 +53,11 @@ services:
     volumes:
       # Read-only, and at the path ssh looks in by default for this user, so an
       # inventory need not name the key at all. Mode 600 on the host is required:
-      # ssh ignores a key that is group- or world-readable.
+      # ssh ignores a key that is group- or world-readable. On Linux the file
+      # also has to be owned by uid 1000, the user this image runs as, or the
+      # container cannot read it at all -- `sudo chown 1000` on it, as
+      # docs/connecting-hosts.md says. Docker Desktop on macOS maps ownership
+      # and hides the whole question.
       - ./tests/fixtures/keys/id_rsa:/var/lib/ansible-mcp/.ssh/id_ed25519:ro
     depends_on:
       ansible_host_1:
