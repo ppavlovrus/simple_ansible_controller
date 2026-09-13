@@ -80,6 +80,11 @@ echo "building ansible-mcp ${VERSION} for ${ARCHITECTURE} on ${BASE_IMAGE}"
         cp /src/packaging/systemd/ansible-mcp.service "$STAGE/lib/systemd/system/"
         cp /src/packaging/debian/ansible-mcp.env "$STAGE/etc/ansible-mcp/"
 
+        # Shipped, not enabled: the drop-in weakens the unit confinement, and
+        # only an installation that isolates runs should take that trade.
+        mkdir -p "$STAGE/usr/share/ansible-mcp/systemd"
+        cp /src/packaging/systemd/isolation.conf "$STAGE/usr/share/ansible-mcp/systemd/"
+
         INSTALLED_SIZE=$(du -sk "$STAGE" | cut -f1)
         mkdir -p "$STAGE/DEBIAN"
         cat > "$STAGE/DEBIAN/control" <<CONTROL
@@ -90,6 +95,7 @@ Priority: optional
 Architecture: ${ARCHITECTURE}
 Depends: python3 (>= ${PYTHON_VERSION}), python3 (<< ${PYTHON_NEXT}), openssh-client
 Recommends: sshpass
+Suggests: podman
 Installed-Size: ${INSTALLED_SIZE}
 Maintainer: ansible-mcp maintainers <noreply@example.invalid>
 Description: Minimal Ansible controller with an MCP interface
@@ -118,6 +124,32 @@ if [ "$1" = "configure" ]; then
 
     mkdir -p /var/lib/ansible-mcp/inventories
     chown -R ansible-mcp:ansible-mcp /var/lib/ansible-mcp
+
+    # Subordinate id ranges, so rootless podman can map ids inside a container
+    # if this installation ever turns isolation on (ADR-0016). Registering them
+    # costs a line in a file and nothing at runtime. An existing entry is left
+    # alone, and a new range starts past everything already allocated, because
+    # two users sharing a range is two users sharing an identity.
+    # Podman talks to a systemd user session by default, and a system user has
+    # none: it falls back correctly but warns twice on stderr, and that stderr
+    # is what a caller reads back as the output of a syntax check. Written only
+    # if absent, so an operator who configured podman keeps their settings.
+    CONTAINERS_CONF=/var/lib/ansible-mcp/.config/containers/containers.conf
+    if [ ! -e "$CONTAINERS_CONF" ]; then
+        mkdir -p /var/lib/ansible-mcp/.config/containers
+        printf "[engine]\ncgroup_manager = \"cgroupfs\"\n" > "$CONTAINERS_CONF"
+        chown -R ansible-mcp:ansible-mcp /var/lib/ansible-mcp/.config
+    fi
+
+    for IDFILE in /etc/subuid /etc/subgid; do
+        [ -e "$IDFILE" ] || : > "$IDFILE"
+        if ! grep -q "^ansible-mcp:" "$IDFILE"; then
+            START=$(awk -F: "BEGIN { top = 100000 }
+                             { end = \$2 + \$3; if (end > top) top = end }
+                             END { print top }" "$IDFILE")
+            echo "ansible-mcp:${START}:65536" >> "$IDFILE"
+        fi
+    done
     # The env file may hold an API key, so it is readable by the service only.
     chown root:ansible-mcp /etc/ansible-mcp/ansible-mcp.env
     chmod 640 /etc/ansible-mcp/ansible-mcp.env
