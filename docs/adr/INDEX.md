@@ -26,6 +26,7 @@ it is small, and each "no" below is load-bearing.
 | [0013](0013-accept-equivalent-argument-shapes.md) | Accept equivalent argument shapes, refuse ambiguous ones | Accepted | 2026-09-12 |
 | [0014](0014-check-mode-is-a-mode-not-a-judgement.md) | Dry run and syntax check are executor modes, not judgement | Accepted | 2026-09-12 |
 | [0015](0015-rest-is-resources-and-the-method-is-the-intent.md) | REST is shaped by resources, and the method is the statement of intent | Accepted | 2026-09-13 |
+| [0016](0016-isolation-is-an-installation-choice.md) | Isolation is an installation choice, and a run cannot opt out of it | Accepted | 2026-09-13 |
 
 Records 0002 to 0008 state decisions taken in the concept and the roadmap before
 any of the target code existed; 0009 describes what the repository already does.

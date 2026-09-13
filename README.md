@@ -139,10 +139,12 @@ What reduces the blast radius today:
 
 What would actually fix it is running each playbook inside a container rather
 than on the host. That is decided and specified in
-[ADR-0008](docs/adr/0008-execution-environments.md) — and **not implemented**:
-the database column exists, the code does not. Until it does, the sentence above
-is the whole security model, and this section is here so nobody discovers it the
-hard way.
+[ADR-0008](docs/adr/0008-execution-environments.md), with
+[ADR-0016](docs/adr/0016-isolation-is-an-installation-choice.md) settling how it
+is switched on — the operator enables it for the installation, a run picks an
+image and cannot decline the sandbox. Both are **not implemented**: the database
+column exists, the code does not. Until it does, the sentence above is the whole
+security model, and this section is here so nobody discovers it the hard way.
 
 ## Working on it
 
