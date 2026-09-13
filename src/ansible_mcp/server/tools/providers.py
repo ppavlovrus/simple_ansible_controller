@@ -5,16 +5,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ansible_mcp.providers import ProviderError
-from ansible_mcp.server.coercion import as_mapping
-from ansible_mcp.server.errors import UsageError, confirmed, require
+from ansible_mcp.operations import providers
+from ansible_mcp.operations.errors import confirmed
 from ansible_mcp.server.instrumentation import instrumented
-from ansible_mcp.server.tools._shared import DELETE, READ, WRITE, Services
+from ansible_mcp.server.tools._shared import DELETE, READ, WRITE
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver import MCPServer
 
-INVENTORY_PREVIEW_LINES = 80
+    from ansible_mcp.operations import Services
 
 
 def register(server: MCPServer, services: Services) -> None:
@@ -50,23 +49,7 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object describing the stored provider.
         """
-        require(bool(name.strip()), "name is empty")
-        try:
-            provider = await services.providers.add(
-                name,
-                plugin_type,
-                as_mapping(config, "config"),
-            )
-        except ProviderError as error:
-            raise UsageError(str(error)) from error
-
-        return json.dumps(
-            {
-                "name": provider.name,
-                "plugin_type": provider.plugin_type,
-                "usable": provider.usable,
-            },
-        )
+        return json.dumps(await providers.add(services, name, plugin_type, config))
 
     @server.tool(annotations=READ)
     @audited
@@ -81,25 +64,7 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with the configured providers and the installed plugin
             types.
         """
-        configured = await services.providers.list()
-        return json.dumps(
-            {
-                "configured": [
-                    {
-                        "name": provider.name,
-                        "plugin_type": provider.plugin_type,
-                        "config": provider.config,
-                        "usable": provider.usable,
-                        "problem": provider.problem,
-                    }
-                    for provider in configured
-                ],
-                "available_plugin_types": [
-                    {"plugin_type": plugin.plugin_type, "description": plugin.description}
-                    for plugin in services.providers.plugin_types()
-                ],
-            },
-        )
+        return json.dumps(await providers.configured(services))
 
     @server.tool(annotations=READ)
     @audited
@@ -117,23 +82,7 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object with the inventory text and whether it was cut short.
         """
-        try:
-            inventory = await services.providers.inventory(provider)
-        except ProviderError as error:
-            raise UsageError(str(error)) from error
-
-        lines = inventory.splitlines(keepends=True)
-        truncated = not full and len(lines) > INVENTORY_PREVIEW_LINES
-        content = "".join(lines[:INVENTORY_PREVIEW_LINES]) if truncated else inventory
-
-        return json.dumps(
-            {
-                "provider": provider,
-                "total_lines": len(lines),
-                "truncated": truncated,
-                "inventory": content,
-            },
-        )
+        return json.dumps(await providers.inventory(services, provider, full=full))
 
     @server.tool(annotations=DELETE)
     @audited
@@ -151,11 +100,4 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object saying whether anything was removed.
         """
         confirmed(confirm, f"deleting provider {name!r}")
-        deleted = await services.providers.delete(name)
-        return json.dumps(
-            {
-                "name": name,
-                "deleted": deleted,
-                "note": None if deleted else "no provider was configured under that name",
-            },
-        )
+        return json.dumps(await providers.delete(services, name))

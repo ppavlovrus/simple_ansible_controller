@@ -5,23 +5,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ansible_mcp.core import InvalidPlaybookError
-from ansible_mcp.server.coercion import as_list, as_yaml_text
-from ansible_mcp.server.errors import UsageError, confirmed, found, require
+from ansible_mcp.operations import playbooks
+from ansible_mcp.operations.errors import confirmed
 from ansible_mcp.server.instrumentation import instrumented
-from ansible_mcp.server.tools._shared import (
-    DELETE,
-    MAX_CHECK_OUTPUT_LINES,
-    MAX_PLAYBOOKS_PER_CALL,
-    PLAYBOOK_PREVIEW_LINES,
-    READ,
-    WRITE,
-    Services,
-    resolve_playbook,
-)
+from ansible_mcp.server.tools._shared import DELETE, READ, WRITE
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver import MCPServer
+
+    from ansible_mcp.operations import Services
 
 
 def register(server: MCPServer, services: Services) -> None:
@@ -57,25 +49,7 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object with the stored name and when it was updated.
         """
-        require(bool(name.strip()), "name is empty")
-        require(bool(content), "content is empty: pass the playbook YAML")
-        try:
-            stored = await services.playbooks.save(
-                name,
-                as_yaml_text(content, "content"),
-                description,
-                as_list(tags, "tags"),
-            )
-        except InvalidPlaybookError as error:
-            raise UsageError(str(error)) from error
-
-        return json.dumps(
-            {
-                "name": stored.name,
-                "updated_at": stored.updated_at,
-                "lines": len(stored.content.splitlines()),
-            },
-        )
+        return json.dumps(await playbooks.save(services, name, content, description, tags))
 
     @server.tool(annotations=READ)
     @audited
@@ -91,26 +65,7 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object with the stored playbooks.
         """
-        require(limit > 0, "limit must be at least 1")
-        require(limit <= MAX_PLAYBOOKS_PER_CALL, f"limit is capped at {MAX_PLAYBOOKS_PER_CALL}")
-
-        playbooks = await services.playbooks.list(limit)
-        return json.dumps(
-            {
-                "returned": len(playbooks),
-                "has_more": len(playbooks) == limit,
-                "playbooks": [
-                    {
-                        "name": playbook.name,
-                        "description": playbook.description,
-                        "tags": playbook.tags,
-                        "lines": len(playbook.content.splitlines()),
-                        "updated_at": playbook.updated_at,
-                    }
-                    for playbook in playbooks
-                ],
-            },
-        )
+        return json.dumps(await playbooks.browse(services, limit))
 
     @server.tool(annotations=READ)
     @audited
@@ -128,27 +83,9 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object with the content, and whether it was cut short.
         """
-        playbook = found(
-            await services.playbooks.get(name),
-            f"no playbook stored as {name!r}; list_playbooks shows what there is",
-        )
-
-        lines = playbook.content.splitlines(keepends=True)
-        truncated = not full and len(lines) > PLAYBOOK_PREVIEW_LINES
-        content = "".join(lines[:PLAYBOOK_PREVIEW_LINES]) if truncated else playbook.content
-
-        return json.dumps(
-            {
-                "name": playbook.name,
-                "description": playbook.description,
-                "tags": playbook.tags,
-                "updated_at": playbook.updated_at,
-                "total_lines": len(lines),
-                "truncated": truncated,
-                "content": content,
-                "hint": "call again with full=true for the whole playbook" if truncated else None,
-            },
-        )
+        read = await playbooks.read(services, name, full=full)
+        hint = "call again with full=true for the whole playbook" if read["truncated"] else None
+        return json.dumps({**read, "hint": hint})
 
     @server.tool(annotations=READ)
     @audited
@@ -174,22 +111,7 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with ok, and the output Ansible produced when it is
             false. The offending line is in that output.
         """
-        content = await resolve_playbook(services, playbook, playbook_name)
-        result = await services.manager.syntax_check(content)
-        output = result.output
-        lines = output.splitlines()
-        truncated = len(lines) > MAX_CHECK_OUTPUT_LINES
-        if truncated:
-            output = "\n".join(lines[:MAX_CHECK_OUTPUT_LINES])
-
-        return json.dumps(
-            {
-                "ok": result.ok,
-                "playbook_name": playbook_name,
-                "truncated": truncated,
-                "output": output,
-            },
-        )
+        return json.dumps(await playbooks.syntax_check(services, playbook, playbook_name))
 
     @server.tool(annotations=DELETE)
     @audited
@@ -208,11 +130,4 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object saying whether anything was removed.
         """
         confirmed(confirm, f"deleting playbook {name!r}")
-        deleted = await services.playbooks.delete(name)
-        return json.dumps(
-            {
-                "name": name,
-                "deleted": deleted,
-                "note": None if deleted else "no playbook was stored under that name",
-            },
-        )
+        return json.dumps(await playbooks.delete(services, name))

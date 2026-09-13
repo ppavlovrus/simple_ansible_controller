@@ -8,8 +8,8 @@ not, and stays refused.
 
 import pytest
 
-from ansible_mcp.server.coercion import as_list, as_mapping, as_text, as_yaml_text
-from ansible_mcp.server.errors import UsageError
+from ansible_mcp.operations.coercion import as_list, as_mapping, as_text, as_yaml_text
+from ansible_mcp.operations.errors import UsageError
 
 PLAYBOOK_TEXT = """\
 - hosts: all

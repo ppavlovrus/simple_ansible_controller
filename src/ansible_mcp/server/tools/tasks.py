@@ -1,9 +1,10 @@
 """Tools for running playbooks and following the runs.
 
-Two rules shape every response. It is JSON with the fields an agent needs to
-decide what to do next, not a dump of the row; and anything unbounded (task
-lists, log output) is capped, because filling the agent's context is a failure
-mode of its own (ADR-0002).
+Each tool is the agent-facing half of an operation in
+:mod:`ansible_mcp.operations.runs`: the description it chooses by, the argument
+shapes it tends to send, the confirmation gate on anything destructive, and the
+hint about what to call next. The rules themselves live below, where REST reads
+them too.
 """
 
 from __future__ import annotations
@@ -11,44 +12,16 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ansible_mcp.core import InvalidPlaybookError, SubmitRequest, validate_playbook
-from ansible_mcp.db import Task, TaskStatus
-from ansible_mcp.providers import ProviderError
-from ansible_mcp.server.coercion import as_list, as_mapping, as_text
-from ansible_mcp.server.errors import UsageError, confirmed, found, require
+from ansible_mcp.operations import runs
+from ansible_mcp.operations.errors import confirmed
+from ansible_mcp.operations.limits import DEFAULT_LOG_LINES
 from ansible_mcp.server.instrumentation import instrumented
-from ansible_mcp.server.tools._shared import (
-    DEFAULT_LOG_LINES,
-    EXECUTE,
-    MAX_LOG_LINES_PER_CALL,
-    MAX_TASKS_PER_CALL,
-    READ,
-    STOP,
-    Services,
-    resolve_playbook,
-)
+from ansible_mcp.server.tools._shared import EXECUTE, READ, STOP
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver import MCPServer
 
-
-def _summarize(task: Task) -> dict[str, Any]:
-    """Return the fields of a task an agent actually decides on."""
-    return {
-        "task_id": task.id,
-        "status": task.status.value,
-        "playbook_name": task.playbook_name,
-        "provider_name": task.provider_name,
-        "created_at": task.created_at.isoformat(),
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
-        "exit_code": task.exit_code,
-        "error_message": task.error_message,
-        # A finished run has to say whether it was a dry run: otherwise "it
-        # succeeded" reads as "it was applied".
-        "check_mode": task.check_mode,
-        "diff_mode": task.diff_mode,
-    }
+    from ansible_mcp.operations import Services
 
 
 def register(server: MCPServer, services: Services) -> None:
@@ -103,62 +76,19 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with task_id and the initial status. The run is not
             finished when this returns.
         """
-        # Both sources present is refused rather than resolved by precedence: a
-        # run that quietly used the other source than the caller believed is a
-        # worse outcome than a refusal that says which argument to drop.
-        require(
-            bool(inventory) != bool(provider),
-            "both inventory and provider were given; drop one. Pass provider alone to take the "
-            "inventory from that configured source, or inventory alone with the text."
-            if inventory and provider
-            else "neither inventory nor provider was given; pass exactly one. Use inventory with "
-            "the INI or YAML text, or provider with the name of a configured source.",
-        )
-
-        # An agent often sends the parsed document where text is declared, or an
-        # empty string where a list is; those mean the same thing and are taken.
-        inventory = as_text(inventory, "inventory") if inventory else None
-        variable_values = as_mapping(variables, "variables")
-        tag_values = as_list(tags, "tags")
-
-        content = await resolve_playbook(services, playbook, playbook_name)
-        require(bool(content.strip()), "playbook is empty: pass the playbook YAML as text")
-        # The same check save_playbook makes. Without it a malformed playbook
-        # became a persisted task, a run directory and an opaque complaint from
-        # ansible, where the storing path answers immediately.
-        try:
-            validate_playbook(content)
-        except InvalidPlaybookError as error:
-            raise UsageError(str(error)) from error
-
-        if provider:
-            try:
-                resolved = await services.providers.inventory(provider)
-            except ProviderError as error:
-                raise UsageError(str(error)) from error
-        else:
-            resolved = inventory or ""
-            require(bool(resolved.strip()), "inventory is empty: pass an INI or YAML inventory")
-
-        task_id = await services.manager.submit(
-            SubmitRequest(
-                playbook=content,
-                inventory=resolved,
-                playbook_name=playbook_name,
-                provider_name=provider,
-                variables=variable_values,
-                tags=tag_values,
-                check=check,
-                diff=diff,
-            ),
+        started = await runs.start(
+            services,
+            playbook=playbook,
+            playbook_name=playbook_name,
+            inventory=inventory,
+            provider=provider,
+            variables=variables,
+            tags=tags,
+            check=check,
+            diff=diff,
         )
         return json.dumps(
-            {
-                "task_id": task_id,
-                "status": TaskStatus.PENDING.value,
-                "check_mode": check,
-                "hint": "poll get_task_status; read output with get_task_logs",
-            },
+            {**started, "hint": "poll get_task_status; read output with get_task_logs"},
         )
 
     @server.tool(annotations=READ)
@@ -177,8 +107,7 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with the status, timestamps, exit code and, for
             failures, the error message.
         """
-        task = found(await services.manager.get(task_id), f"no task with id {task_id!r}")
-        return json.dumps(_summarize(task))
+        return json.dumps(await runs.status(services, task_id))
 
     @server.tool(annotations=READ)
     @audited
@@ -208,37 +137,7 @@ def register(server: MCPServer, services: Services) -> None:
             A JSON object with the lines, how many were returned, and next_line
             to pass back on the following call.
         """
-        require(tail > 0, "tail must be at least 1")
-        require(
-            tail <= MAX_LOG_LINES_PER_CALL,
-            f"tail is capped at {MAX_LOG_LINES_PER_CALL} lines per call",
-        )
-        require(after_line >= 0, "after_line cannot be negative")
-        found(await services.manager.get(task_id), f"no task with id {task_id!r}")
-
-        # next_line is an absolute position in the output, so a follower can pass
-        # it straight back. Counting is a newline scan, not a read into memory.
-        total = await services.manager.count_output_lines(task_id)
-
-        if after_line:
-            everything = (await services.manager.read_output(task_id)).splitlines()
-            selected = everything[after_line : after_line + tail]
-            consumed = after_line + len(selected)
-            output = "\n".join(selected)
-        else:
-            output = await services.manager.read_output(task_id, tail)
-            selected = output.splitlines()
-            consumed = total
-
-        return json.dumps(
-            {
-                "task_id": task_id,
-                "returned_lines": len(selected),
-                "next_line": consumed,
-                "may_have_more": total > consumed,
-                "output": output,
-            },
-        )
+        return json.dumps(await runs.logs(services, task_id, tail=tail, after_line=after_line))
 
     @server.tool(annotations=STOP)
     @audited
@@ -264,17 +163,7 @@ def register(server: MCPServer, services: Services) -> None:
             already finished reports cancelled=false with its final status.
         """
         confirmed(confirm, f"cancelling task {task_id}")
-
-        task = found(await services.manager.get(task_id), f"no task with id {task_id!r}")
-        cancelled = await services.manager.cancel(task_id)
-        return json.dumps(
-            {
-                "task_id": task_id,
-                "cancelled": cancelled,
-                "status": task.status.value,
-                "note": None if cancelled else "the task had already reached a final status",
-            },
-        )
+        return json.dumps(await runs.cancel(services, task_id))
 
     @server.tool(annotations=READ)
     @audited
@@ -293,23 +182,4 @@ def register(server: MCPServer, services: Services) -> None:
         Returns:
             A JSON object with the runs and how many were returned.
         """
-        require(limit > 0, "limit must be at least 1")
-        require(limit <= MAX_TASKS_PER_CALL, f"limit is capped at {MAX_TASKS_PER_CALL}")
-
-        wanted: TaskStatus | None = None
-        if status is not None:
-            try:
-                wanted = TaskStatus(status)
-            except ValueError:
-                known = ", ".join(member.value for member in TaskStatus)
-                message = f"unknown status {status!r}: expected one of {known}"
-                raise UsageError(message) from None
-
-        tasks = await services.manager.list(status=wanted, limit=limit)
-        return json.dumps(
-            {
-                "returned": len(tasks),
-                "has_more": len(tasks) == limit,
-                "tasks": [_summarize(task) for task in tasks],
-            },
-        )
+        return json.dumps(await runs.recent(services, status=status, limit=limit))

@@ -19,8 +19,9 @@ from ansible_mcp import __version__
 from ansible_mcp.core import Executor, PlaybookStore, TaskManager
 from ansible_mcp.core.audit import AuditLog
 from ansible_mcp.db import create_engine, create_schema, create_session_factory
+from ansible_mcp.operations import Services
 from ansible_mcp.providers import ProviderRegistry, Providers
-from ansible_mcp.server.tools import Services, register_all
+from ansible_mcp.server.tools import register_all
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

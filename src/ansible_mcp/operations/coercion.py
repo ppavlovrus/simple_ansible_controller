@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from ansible_mcp.server.errors import UsageError
+from ansible_mcp.operations.errors import UsageError
 
 
 def as_yaml_text(value: Any, field: str) -> str:

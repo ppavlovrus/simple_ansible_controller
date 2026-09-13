@@ -215,3 +215,40 @@ def test_a_long_non_string_value_is_recorded_by_size():
 
     assert "tag-59" not in described
     assert "60 items" in described
+
+
+# One call per tool, chosen to reach our code: an argument the SDK's own schema
+# accepts, naming something that is not there. What comes back does not matter.
+A_CALL_TO_EVERY_TOOL = {
+    "run_playbook": {},
+    "get_task_status": {"task_id": "nope"},
+    "get_task_logs": {"task_id": "nope"},
+    "cancel_task": {"task_id": "nope"},
+    "list_tasks": {},
+    "save_playbook": {"name": "nope"},
+    "list_playbooks": {},
+    "get_playbook": {"name": "nope"},
+    "syntax_check_playbook": {},
+    "delete_playbook": {"name": "nope"},
+    "add_provider": {"name": "nope", "plugin_type": "nope"},
+    "list_providers": {},
+    "get_inventory": {"provider": "nope"},
+    "delete_provider": {"name": "nope"},
+}
+
+
+async def test_every_registered_tool_records_its_call(application):
+    # The rules moved out of the tools and into the operations layer, which is
+    # also where UsageError stopped being the SDK's ToolError. A tool registered
+    # without the audit wrapper therefore loses both halves of the contract at
+    # once: the refusal reaches the agent as an internal error, and nothing is
+    # written down. Walking the registry catches that on the day it is added,
+    # instead of the day someone reads the log and finds a call missing.
+    registered = {tool.name for tool in await application.server.list_tools()}
+    assert registered == set(A_CALL_TO_EVERY_TOOL), "a tool was added; give it a call here"
+
+    for tool, arguments in A_CALL_TO_EVERY_TOOL.items():
+        await call(application, tool, **arguments)
+
+    recorded = {entry.tool for entry in await application.audit.recent(limit=100)}
+    assert recorded == registered

@@ -4,6 +4,10 @@ Both concerns belong at the same seam. A tool that raises must reach the agent a
 a sentence rather than a traceback, and the call must be recorded whether it
 succeeded, was refused or blew up. Keeping them in one decorator means a new tool
 cannot pick up half of the contract.
+
+The recording itself is shared with the REST surface
+(:mod:`ansible_mcp.operations.recording`); what is specific here is turning a
+refusal into the SDK's ToolError, which is how a refusal reaches an agent.
 """
 
 from __future__ import annotations
@@ -11,21 +15,17 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
-import logging
-import time
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from ansible_mcp.core.audit import Outcome
-from ansible_mcp.server.errors import UsageError
+from ansible_mcp.operations.errors import UsageError
+from ansible_mcp.operations.recording import failure_message, record
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from ansible_mcp.core.audit import AuditLog
-
-log = logging.getLogger("ansible_mcp.tools")
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -37,7 +37,7 @@ def instrumented(
     """Return a decorator that audits a tool and tidies its failures.
 
     ``UsageError`` is a refusal: the call was wrong, the message already explains
-    what to do differently, and it passes through as written. Anything else is
+    what to do differently, and it reaches the agent as written. Anything else is
     unexpected, so the traceback goes to the operator's log and the agent gets a
     single line, because a stack trace is not something an agent can act on.
     """
@@ -47,32 +47,20 @@ def instrumented(
 
         @functools.wraps(function)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            started = time.monotonic()
-            arguments: dict[str, Any] = dict(kwargs)
-
-            def elapsed() -> int:
-                return int((time.monotonic() - started) * 1000)
-
+            # The translation happens outside the recording, so the log keeps the
+            # distinction between a refusal and a failure that this hides from
+            # the agent: over the wire both are a tool error.
             try:
-                result = await function(*args, **kwargs)
+                async with record(audit, tool_name, dict(kwargs)) as call:
+                    result = await function(*args, **kwargs)
+                    call.task_id = _task_id_of(result, kwargs)
+                    return result
             except UsageError as refusal:
-                await audit.record(tool_name, arguments, Outcome.REFUSED, str(refusal), elapsed())
+                raise ToolError(str(refusal)) from refusal
+            except ToolError:
                 raise
             except Exception as error:
-                log.exception("tool %s failed", tool_name)
-                message = f"{tool_name} failed: {type(error).__name__}: {error}"
-                await audit.record(tool_name, arguments, Outcome.FAILED, message, elapsed())
-                raise ToolError(message) from error
-
-            await audit.record(
-                tool_name,
-                arguments,
-                Outcome.OK,
-                None,
-                elapsed(),
-                _task_id_of(result, arguments),
-            )
-            return result
+                raise ToolError(failure_message(tool_name, error)) from error
 
         return wrapper
 
