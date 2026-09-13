@@ -37,6 +37,12 @@ make deb                     # Debian package, built in a container
 CI runs `task lint` and `task tests`, the same commands, plus a container build.
 A green local run means a green CI run.
 
+`task lint` starts with `poetry check --lock`, because that promise was broken
+once: editing a dependency line by hand after `poetry add` leaves the lock's
+content hash stale, `poetry run` never notices, and CI fails on `poetry install`
+before a single test runs. If you touch `[project] dependencies`, run
+`poetry lock` and commit the result.
+
 ## Before changing anything
 
 **Read the relevant ADR.** [docs/adr/INDEX.md](docs/adr/INDEX.md) is short and

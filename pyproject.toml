@@ -49,7 +49,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.taskipy.tasks]
 serve = "python -m ansible_mcp"
 tests = "pytest"
-lint = "ruff check . && ruff format --check . && mypy src"
+lint = "poetry check --lock && ruff check . && ruff format --check . && mypy src"
 eval = "python evals/scenario_runner.py"
 fmt = "ruff format . && ruff check --fix ."
 
