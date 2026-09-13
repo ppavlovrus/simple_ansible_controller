@@ -8,11 +8,19 @@
 #
 #   packaging/build-deb.sh            # amd64, needs docker or podman
 #   packaging/build-deb.sh arm64
+#   BASE_IMAGE=ubuntu:24.04 packaging/build-deb.sh
+#
+# The base image decides which python the virtualenv is built against, and a
+# virtualenv only works with the python minor version that built it. The
+# dependency in the control file is generated to match, so the package refuses
+# to install where it would not run rather than installing and failing at the
+# first start. Build one per distribution you support.
 #
 # The result lands in dist/.
 set -euo pipefail
 
 ARCHITECTURE="${1:-amd64}"
+BASE_IMAGE="${BASE_IMAGE:-debian:bookworm-slim}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/pyproject.toml" | head -1)"
 RUNTIME="$(command -v docker || command -v podman)"
@@ -22,14 +30,14 @@ if [[ -z "$RUNTIME" ]]; then
     exit 2
 fi
 
-echo "building ansible-mcp ${VERSION} for ${ARCHITECTURE}"
+echo "building ansible-mcp ${VERSION} for ${ARCHITECTURE} on ${BASE_IMAGE}"
 
 "$RUNTIME" run --rm \
     --platform "linux/${ARCHITECTURE}" \
     --volume "$ROOT:/src:ro" \
     --volume "$ROOT/dist:/out" \
     --workdir /build \
-    debian:bookworm-slim \
+    "$BASE_IMAGE" \
     bash -euo pipefail -c '
         export DEBIAN_FRONTEND=noninteractive
         apt-get update >/dev/null
@@ -39,6 +47,16 @@ echo "building ansible-mcp ${VERSION} for ${ARCHITECTURE}"
         VERSION="'"$VERSION"'"
         ARCHITECTURE="'"$ARCHITECTURE"'"
         STAGE=/build/stage
+
+        # A virtualenv is bound to the python minor version that created it:
+        # its site-packages lives under lib/pythonX.Y, and another interpreter
+        # does not look there. Installing on a distribution with a different
+        # python therefore produces a service that starts and immediately dies
+        # on "No module named ansible_mcp" -- found by installing a bookworm
+        # package on Ubuntu 24.04. The control file below pins what this build
+        # actually produced.
+        PYTHON_VERSION=$(python3 -c "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")")
+        PYTHON_NEXT=$(python3 -c "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor + 1}\")")
 
         # Built at the path it will be installed to, then copied into the
         # staging tree. A virtualenv is not relocatable: the console scripts get
@@ -70,7 +88,7 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: ${ARCHITECTURE}
-Depends: python3 (>= 3.11), openssh-client
+Depends: python3 (>= ${PYTHON_VERSION}), python3 (<< ${PYTHON_NEXT}), openssh-client
 Recommends: sshpass
 Installed-Size: ${INSTALLED_SIZE}
 Maintainer: ansible-mcp maintainers <noreply@example.invalid>
