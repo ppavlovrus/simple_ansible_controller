@@ -1,4 +1,4 @@
-# The same image on Alpine: 235MB instead of 350MB, at the cost of musl.
+# The same image on Alpine: 237MB instead of 351MB, at the cost of musl.
 #
 # Worth it when the image is moved around a lot. Not the default, because the
 # control node is where an operator installs collections, and a collection with

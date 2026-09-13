@@ -4,11 +4,12 @@ Two ways to run the service, for two different situations.
 
 | | Size | Isolation | When |
 |---|---|---|---|
-| Container | 350MB (235MB on Alpine) | Whatever the runtime gives | Anywhere a container runtime exists |
-| `.deb` | 64MB installed | systemd sandboxing | A host, and the only way to enable execution environments (ADR-0008) |
+| Container | 351MB (237MB on Alpine) | Whatever the runtime gives | Anywhere a container runtime exists |
+| `.deb` | 65MB installed | systemd sandboxing | A host, and the only way to enable execution environments (ADR-0008) |
 
 Both were built and exercised, not just written: the numbers above come from
-`docker images` and `du -sh /opt/ansible-mcp` after a real install.
+`docker images` and from `du -sh` over what the package installs into
+`/opt/ansible-mcp`.
 
 ## Container
 
@@ -32,7 +33,7 @@ mkdir -p data && sudo chown 1000:1000 data
 
 ### The Alpine variant
 
-`Containerfile.alpine` produces the same service in 235MB instead of 350MB. It
+`Containerfile.alpine` produces the same service in 237MB instead of 351MB. It
 is not the default. The control node is where an operator installs Ansible
 collections, and a collection with a binary dependency ships manylinux wheels
 far more often than musllinux ones: on glibc it installs, on musl it needs a
