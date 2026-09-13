@@ -30,13 +30,13 @@ jobs:
         python: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Poetry
         run: pipx install "poetry==${POETRY_VERSION}"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           # Keyed on poetry.lock, so a dependency change invalidates it and
@@ -54,13 +54,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Poetry
         run: pipx install "poetry==${POETRY_VERSION}"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: poetry
@@ -78,13 +78,13 @@ jobs:
     needs: check
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Poetry
         run: pipx install "poetry==${POETRY_VERSION}"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: poetry
@@ -144,7 +144,7 @@ jobs:
             tag: ci-alpine
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A Containerfile that no longer builds is a broken release, and nothing
       # else in CI would notice.
@@ -190,7 +190,7 @@ jobs:
     needs: check
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build
         run: packaging/build-deb.sh amd64
@@ -238,7 +238,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The prototype's docs left ten dead links behind, and nobody noticed for
       # months. Cheap to check, so it is checked.
