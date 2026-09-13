@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from ansible_mcp.config import Settings, get_settings
+from ansible_mcp.server import ensure_safe_to_expose
 
 
 def test_defaults_do_not_require_any_environment():
@@ -54,3 +55,23 @@ def test_settings_are_cached(monkeypatch):
     assert first is second
     assert second.port == 9100
     get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_a_blank_api_key_is_no_api_key(monkeypatch, blank):
+    # Found by running compose without a key: the variable reaches the process as
+    # an empty string, which "is set" as far as the gate was concerned. The
+    # server then bound to 0.0.0.0 and answered 401 to everyone, including
+    # whoever started it.
+    monkeypatch.setenv("ANSIBLE_MCP_API_KEY", blank)
+
+    assert Settings().api_key is None
+
+
+def test_a_blank_key_does_not_buy_a_public_bind(monkeypatch):
+    monkeypatch.setenv("ANSIBLE_MCP_API_KEY", "")
+    monkeypatch.setenv("ANSIBLE_MCP_HOST", "0.0.0.0")
+    monkeypatch.setenv("ANSIBLE_MCP_TRANSPORT", "streamable-http")
+
+    with pytest.raises(RuntimeError, match="requires ANSIBLE_MCP_API_KEY"):
+        ensure_safe_to_expose(Settings())

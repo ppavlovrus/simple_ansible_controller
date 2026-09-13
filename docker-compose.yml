@@ -43,9 +43,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # No default on purpose: an unset key should fail loudly here rather than
-      # produce an unauthenticated endpoint.
-      ANSIBLE_MCP_API_KEY: ${ANSIBLE_MCP_API_KEY:?set ANSIBLE_MCP_API_KEY, for example $(openssl rand -hex 32)}
+      # Passed through empty rather than demanded here. An unset key still fails
+      # loudly -- the server exits 2 saying so, because this binds beyond
+      # loopback (ADR-0012) -- and that refusal names what to do, where a compose
+      # interpolation error only names a variable. Demanding it at this line made
+      # `docker compose up -d` fail for the hosts-only profile too, since compose
+      # interpolates the whole file whatever profile is active.
+      ANSIBLE_MCP_API_KEY: ${ANSIBLE_MCP_API_KEY:-}
     volumes:
       # Read-only, and at the path ssh looks in by default for this user, so an
       # inventory need not name the key at all. Mode 600 on the host is required:

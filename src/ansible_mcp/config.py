@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +55,23 @@ class Settings(BaseSettings):
     keep_artifacts_days: int | None = Field(default=None, gt=0)
     transport: Literal["stdio", "streamable-http"] = "stdio"
     extra_inventory_dirs: list[Path] = Field(default_factory=list)
+
+    @field_validator("api_key", mode="after")
+    @classmethod
+    def _blank_is_absent(cls, value: str | None) -> str | None:
+        """Treat an empty or blank key as no key at all.
+
+        The safety gate asks whether a key is set, and an empty string is set.
+        A container started with ``ANSIBLE_MCP_API_KEY=`` -- which is what an
+        unset variable passed through compose looks like -- therefore sailed past
+        the refusal and served an endpoint beyond loopback that nothing could
+        authenticate to: every request 401, for the operator too. A configuration
+        that looks protected while being broken is the failure ADR-0010 named,
+        and the honest reading of a blank value is that no key was given.
+        """
+        if value is None:
+            return None
+        return value if value.strip() else None
 
     @property
     def database_path(self) -> Path:

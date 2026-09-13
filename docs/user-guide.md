@@ -416,6 +416,7 @@ version of this, including what would actually fix it, is in the
 | `Permission denied (publickey)` in the logs | The credential, not the controller. [Reaching hosts](connecting-hosts.md) has a table of these. |
 | `[redacted]` where you expected a value | Working as intended: secret-looking values are removed from output, messages and the audit log. |
 | Escape codes in the log output | Ansible's colour codes, passed through verbatim. Harmless to an agent; strip them if a human is reading. |
+| Every run fails with `table tasks has no column named ...` | The data directory was created by an older version, and there are no migrations yet: the schema is created, never altered. Start with a fresh data directory, or move `ansible_mcp.db` aside and lose the run history. A container keeps `/data` in a volume, so this survives a new image. |
 
 The audit trail in the database answers "what was called, how it ended, and which
 run it produced" — including calls that were refused. No tool exposes it; read it
