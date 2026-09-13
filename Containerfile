@@ -16,11 +16,16 @@ ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_ROOT_USER_ACTION=ignore
 
+# Poetry goes into the image's own python, deliberately before the virtualenv
+# is put on PATH: installed after, it lands inside /opt/venv and is copied into
+# the runtime with everything it drags along -- which is what this file used to
+# do, to the tune of 22MB and a `poetry` on the shipped PATH.
+RUN pip install "poetry>=2.0"
+
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /src
-RUN pip install "poetry>=2.0"
 
 # Copied before the sources so a dependency-only change reuses this layer.
 COPY pyproject.toml poetry.lock README.md ./

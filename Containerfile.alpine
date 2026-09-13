@@ -1,4 +1,4 @@
-# The same image on Alpine: 237MB instead of 351MB, at the cost of musl.
+# The same image on Alpine: 189MB instead of 306MB, at the cost of musl.
 #
 # Worth it when the image is moved around a lot. Not the default, because the
 # control node is where an operator installs collections, and a collection with
@@ -25,11 +25,14 @@ ENV PIP_NO_CACHE_DIR=1 \
 # None of this reaches the runtime stage.
 RUN apk add --no-cache build-base libffi-dev openssl-dev
 
+# Installed before the virtualenv reaches PATH, or it lands inside /opt/venv and
+# ships to the runtime; see the note in Containerfile.
+RUN pip install "poetry>=2.0"
+
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /src
-RUN pip install "poetry>=2.0"
 
 # Copied before the sources so a dependency-only change reuses this layer.
 COPY pyproject.toml poetry.lock README.md ./
