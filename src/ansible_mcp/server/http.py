@@ -1,9 +1,11 @@
-"""Serving over HTTP: who may call, and how to tell the service is alive.
+"""Serving over HTTP: who may call, what is served where, and whether it is alive.
 
-The MCP endpoint executes playbooks on real hosts, so reaching it has to be
-proof of authorization rather than proof of network access. A static bearer token
-is a modest mechanism, but it is checked on every request, in constant time, and
-its absence stops the server from starting at all (ADR-0012).
+One port carries both surfaces: the MCP endpoint at /mcp for agents, and the
+REST API under /api/v1 for people and scripts (ADR-0015). Either can execute
+playbooks on real hosts, so reaching the port has to be proof of authorization
+rather than proof of network access. A static bearer token is a modest
+mechanism, but it is checked on every request, in constant time, and its absence
+stops the server from starting at all (ADR-0012).
 
 The health endpoint deliberately sits outside the check: a readiness probe
 should not need a credential, and it reveals nothing beyond counts.
@@ -14,17 +16,22 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
 from sqlalchemy import func, select
 
 from ansible_mcp import __version__
+from ansible_mcp.api import build_api
 from ansible_mcp.core.audit import AuditEntry
 from ansible_mcp.db import Task, TaskStatus
 from ansible_mcp.server.app import LOOPBACK_ADDRESSES
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from starlette.applications import Starlette
     from starlette.types import ASGIApp, Receive, Scope, Send
 
     from ansible_mcp.config import Settings
@@ -125,7 +132,7 @@ async def health(application: Application) -> dict[str, Any]:
 
 
 def build_http_app(application: Application, settings: Settings) -> ASGIApp:
-    """Return the ASGI application to serve, health probe and auth included.
+    """Return the ASGI application to serve: both surfaces, health probe and auth.
 
     A loopback bind without a key is served unguarded, which is what ADR-0012
     permits: reaching it already requires being on the machine. Any other address
@@ -142,7 +149,25 @@ def build_http_app(application: Application, settings: Settings) -> ASGIApp:
         """Report liveness and a few counts, without requiring a token."""
         return JSONResponse(await health(application))
 
-    app: ASGIApp = application.server.streamable_http_app(host=settings.host)
+    mcp_app = application.server.streamable_http_app(host=settings.host)
+
+    @asynccontextmanager
+    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
+        """Run the MCP application's startup and shutdown.
+
+        It owns everything that matters at startup -- the schema, the recovery
+        of runs a restart interrupted, the session manager -- and a mounted
+        application is never sent a lifespan of its own, so the outer one has to
+        run it or none of that happens.
+        """
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
+
+    api = build_api(application.services, lifespan=lifespan)
+    # Everything the REST routes do not claim falls through to MCP, which is
+    # what keeps /mcp and /healthz at the paths they have always been at.
+    api.mount("/", mcp_app)
+    app: ASGIApp = api
 
     if settings.api_key is None:
         if settings.host not in LOOPBACK_ADDRESSES:
@@ -163,7 +188,7 @@ def build_http_app(application: Application, settings: Settings) -> ASGIApp:
 
 
 def serve_http(application: Application, settings: Settings) -> None:
-    """Serve the MCP endpoint over HTTP until interrupted."""
+    """Serve both HTTP surfaces until interrupted."""
     uvicorn.run(
         build_http_app(application, settings),
         host=settings.host,

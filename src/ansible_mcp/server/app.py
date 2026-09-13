@@ -59,6 +59,10 @@ class Application:
     playbooks: PlaybookStore
     providers: Providers
     audit: AuditLog
+    # The same services the tools were registered against: the REST surface is
+    # built on them too, and both have to act on one set of objects or a run
+    # started through one door would be invisible through the other.
+    services: Services
 
 
 def build_application(settings: Settings) -> Application:
@@ -108,10 +112,8 @@ def build_application(settings: Settings) -> Application:
         instructions=INSTRUCTIONS,
         lifespan=lifespan,
     )
-    register_all(
-        server,
-        Services(manager=manager, playbooks=playbooks, providers=providers, audit=audit),
-    )
+    services = Services(manager=manager, playbooks=playbooks, providers=providers, audit=audit)
+    register_all(server, services)
     return Application(
         server=server,
         manager=manager,
@@ -119,6 +121,7 @@ def build_application(settings: Settings) -> Application:
         playbooks=playbooks,
         providers=providers,
         audit=audit,
+        services=services,
     )
 
 

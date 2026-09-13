@@ -20,6 +20,9 @@ dependencies = [
     "pyyaml>=6.0",
     "uvicorn>=0.30",
     "starlette>=0.40",
+    # The REST surface. Installed anyway as part of the MCP SDK's world, but a
+    # dependency that is imported is a dependency that is declared.
+    "fastapi>=0.115",
 ]
 
 
