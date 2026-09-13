@@ -45,6 +45,9 @@ _RUNNER_STATUS_TO_TASK_STATUS = {
 
 _PLAYBOOK_FILENAME = "playbook.yml"
 _INVENTORY_FILENAME = "hosts"
+# Where ansible-runner mounts the run directory inside a container. Fixed by the
+# library, not by us, and the only path a contained run can report.
+_CONTAINER_RUN_DIR = "/runner"
 
 
 class Cancellation:
@@ -168,12 +171,19 @@ class Executor:
             "container_image": self._isolation.image_for(image),
             # /runner is where ansible-runner mounts the run directory, and the
             # only path inside the container that is certainly writable by
-            # whoever the process turns out to be. Without this, ansible tries
-            # to create its temporary directory under a home that does not
-            # exist -- docker runs the image as the host uid, which usually
-            # matches no user in it -- and the run dies at "Unable to create
-            # local directories '/.ansible/tmp'". Found by running it.
-            "envvars": {"HOME": "/runner"},
+            # whoever the process turns out to be. Without a home, ansible dies
+            # at "Unable to create local directories '/.ansible/tmp'" -- docker
+            # runs the image as the host uid, which usually matches no user in
+            # it.
+            #
+            # It goes through container_options rather than envvars, because
+            # envvars are also given to the process that launches the container.
+            # Rootless podman resolves its own storage under HOME and refuses to
+            # start when it points at a path that exists only inside the
+            # container: "cannot resolve /runner: lstat /runner: no such file or
+            # directory". Docker tolerated it, so this only appeared on a real
+            # podman host -- which is the supported one.
+            "container_options": ["-e", f"HOME={_CONTAINER_RUN_DIR}"],
         }
 
     def run_dir(self, task_id: str) -> Path:
@@ -322,8 +332,12 @@ class Executor:
 
             output = (root / "artifacts" / "check" / "stdout").read_text(errors="replace")
             # The temporary path is an implementation detail and means nothing to
-            # the caller, who sent text rather than a file.
+            # the caller, who sent text rather than a file. Isolated, ansible
+            # reports the path it saw inside the container instead, which is
+            # just as meaningless and is a fixed string.
             output = output.replace(str(root / "project" / _PLAYBOOK_FILENAME), "the playbook")
+            contained = f"{_CONTAINER_RUN_DIR}/project/{_PLAYBOOK_FILENAME}"
+            output = output.replace(contained, "the playbook")
             output = output.replace(str(root), "")
             return SyntaxCheckResult(ok=runner.rc == 0, output=output.strip())
 
