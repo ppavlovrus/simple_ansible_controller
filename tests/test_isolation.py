@@ -32,6 +32,38 @@ async def on_the_host(tmp_path, session_factory):
     return TaskManager(session_factory, Executor(tmp_path / "tasks"))
 
 
+def test_credentials_are_mounted_where_ssh_actually_looks(tmp_path, monkeypatch):
+    # Learned by running it: ssh does not read HOME to find keys, it asks the
+    # password database for the home of whoever it is running as. With one mount
+    # at the home we set, ssh went on reading /root/.ssh, offered nothing, and
+    # every isolated run against a real host ended in "Permission denied
+    # (publickey)".
+    home = tmp_path / "service-home"
+    (home / ".ssh").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    executor = Executor(tmp_path / "tasks", isolation=Isolation(runtime="podman", image=IMAGE))
+    arguments = executor._containerized(None)
+
+    destinations = [mount.split(":")[1] for mount in arguments["container_volume_mounts"]]
+    assert destinations == ["/root/.ssh", "/home/runner/.ssh"]
+    assert all(mount.endswith(":ro") for mount in arguments["container_volume_mounts"])
+    # And the home the container is given is the one directory it can write to.
+    assert arguments["container_options"] == ["-e", "HOME=/runner"]
+
+
+def test_nothing_is_mounted_when_the_service_has_no_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "empty"))
+
+    executor = Executor(tmp_path / "tasks", isolation=Isolation(runtime="podman", image=IMAGE))
+
+    assert executor._containerized(None)["container_volume_mounts"] == []
+
+
+def test_nothing_is_containerized_when_isolation_is_off(tmp_path):
+    assert Executor(tmp_path / "tasks")._containerized(None) == {}
+
+
 def test_a_run_takes_the_configured_image_when_it_names_none():
     assert Isolation(runtime="podman", image=IMAGE).image_for(None) == IMAGE
 
