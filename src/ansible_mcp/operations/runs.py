@@ -42,6 +42,9 @@ def summarize(task: Task) -> dict[str, Any]:
         # succeeded" reads as "it was applied".
         "check_mode": task.check_mode,
         "diff_mode": task.diff_mode,
+        # Where it ran. None means on the controller host itself, which is what
+        # an installation without isolation does (ADR-0016).
+        "execution_environment": task.execution_environment,
     }
 
 
@@ -56,6 +59,7 @@ async def start(
     tags: Any = None,
     check: bool = False,
     diff: bool = False,
+    execution_environment: str | None = None,
 ) -> dict[str, Any]:
     """Start a run in the background and return its identifier.
 
@@ -72,6 +76,9 @@ async def start(
         tags: Ansible tags to limit the run to.
         check: run with ``--check``, changing nothing on the hosts.
         diff: run with ``--diff``, reporting what each change would alter.
+        execution_environment: container image to run inside, where the
+            installation isolates runs. It cannot switch isolation on, and
+            leaving it out does not switch isolation off.
 
     Returns:
         The identifier of the created run and its initial status.
@@ -81,6 +88,16 @@ async def start(
             empty or malformed, or the provider cannot resolve an inventory.
         NotFoundError: if a named playbook is not stored here.
     """
+    # Naming an image where nothing would honour it is refused rather than
+    # ignored: a caller that believes its playbook is sandboxed, and is wrong
+    # about that, is worse off than one told plainly that it is not.
+    require(
+        execution_environment is None or services.manager.isolation is not None,
+        "execution_environment was given, but this installation runs playbooks on the "
+        "controller host itself. Isolation is switched on by the operator for the whole "
+        "installation, not per run; drop the argument.",
+    )
+
     # Both sources present is refused rather than resolved by precedence: a
     # run that quietly used the other source than the caller believed is a
     # worse outcome than a refusal that says which argument to drop.
@@ -128,6 +145,7 @@ async def start(
             tags=tag_values,
             check=check,
             diff=diff,
+            execution_environment=execution_environment,
         ),
     )
     return {

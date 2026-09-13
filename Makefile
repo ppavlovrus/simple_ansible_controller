@@ -1,4 +1,4 @@
-.PHONY: all keygen build image image-alpine deb run down test integration lint format clean check help
+.PHONY: all keygen build image image-alpine ee-image deb run down test integration isolation lint format clean check help
 
 DOCKER_COMPOSE = docker-compose
 DC_FILE = -f docker-compose.yml
@@ -19,6 +19,11 @@ image:
 image-alpine:
 	docker build -f Containerfile.alpine -t ansible-mcp:alpine .
 
+# The smallest thing that counts as an execution environment: ansible-playbook
+# on PATH and no entrypoint. Only the isolation tests need it.
+ee-image:
+	docker build -f tests/fixtures/ee/Containerfile -t ansible-mcp-ee:test .
+
 deb:
 	packaging/build-deb.sh
 
@@ -34,6 +39,9 @@ test:
 integration: keygen
 	$(DOCKER_COMPOSE) $(DC_FILE) up -d
 	poetry run pytest tests/test_integration_ssh.py -v
+
+isolation: ee-image
+	poetry run pytest tests/test_integration_isolation.py -v
 
 lint:
 	poetry run task lint

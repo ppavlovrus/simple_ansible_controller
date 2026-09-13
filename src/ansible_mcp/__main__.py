@@ -6,7 +6,11 @@ import logging
 import sys
 
 from ansible_mcp.config import get_settings
-from ansible_mcp.server import build_application, ensure_safe_to_expose
+from ansible_mcp.server import (
+    build_application,
+    ensure_isolation_is_usable,
+    ensure_safe_to_expose,
+)
 from ansible_mcp.server.http import serve_http
 
 CONFIGURATION_ERROR = 2
@@ -31,6 +35,7 @@ def main() -> int:
             format="%(asctime)s %(levelname)s %(name)s %(message)s",
         )
         ensure_safe_to_expose(settings)
+        ensure_isolation_is_usable(settings)
     except (RuntimeError, ValueError) as error:
         print(f"ansible-mcp: {_one_line(error)}", file=sys.stderr)
         return CONFIGURATION_ERROR

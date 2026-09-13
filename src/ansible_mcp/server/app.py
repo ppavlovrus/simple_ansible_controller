@@ -9,14 +9,16 @@ lifespan.
 from __future__ import annotations
 
 import logging
+import shutil
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver import MCPServer
 
 from ansible_mcp import __version__
-from ansible_mcp.core import Executor, PlaybookStore, TaskManager
+from ansible_mcp.core import Executor, Isolation, PlaybookStore, TaskManager
 from ansible_mcp.core.audit import AuditLog
 from ansible_mcp.db import create_engine, create_schema, create_session_factory
 from ansible_mcp.operations import Services
@@ -78,7 +80,7 @@ def build_application(settings: Settings) -> Application:
     session_factory = create_session_factory(engine)
     manager = TaskManager(
         session_factory,
-        Executor(settings.tasks_dir),
+        Executor(settings.tasks_dir, isolation=_isolation(settings)),
         max_concurrent_tasks=settings.max_concurrent_tasks,
         run_timeout_seconds=settings.run_timeout_seconds,
         keep_artifacts_days=settings.keep_artifacts_days,
@@ -123,6 +125,64 @@ def build_application(settings: Settings) -> Application:
         audit=audit,
         services=services,
     )
+
+
+def _isolation(settings: Settings) -> Isolation | None:
+    """Return where playbooks run, or ``None`` when they run on this host.
+
+    ``ensure_isolation_is_usable`` has already refused the configurations this
+    cannot express, so an enabled mode here always has an image.
+    """
+    if not settings.isolation or settings.execution_image is None:
+        return None
+    return Isolation(runtime=settings.container_runtime, image=settings.execution_image)
+
+
+def ensure_isolation_is_usable(settings: Settings) -> None:
+    """Refuse an isolation mode that cannot actually isolate anything.
+
+    An operator who turned this on did so to stop playbooks running on this
+    host. Discovering at the first run -- from inside a failed playbook -- that
+    there is no runtime or no image is not an acceptable way to learn that it
+    never happened (ADR-0016).
+
+    Raises:
+        RuntimeError: if isolation is on without an image or without the runtime
+            that would launch it.
+    """
+    if not settings.isolation:
+        return
+
+    if settings.execution_image is None:
+        message = (
+            "ANSIBLE_MCP_ISOLATION is on but ANSIBLE_MCP_EXECUTION_IMAGE is not set: "
+            "name an image that is already present on this host and carries "
+            "ansible-playbook on its PATH"
+        )
+        raise RuntimeError(message)
+
+    if shutil.which(settings.container_runtime) is None:
+        message = (
+            f"ANSIBLE_MCP_ISOLATION is on but {settings.container_runtime} was not found "
+            f"on PATH: install it, or set ANSIBLE_MCP_ISOLATION=false to run playbooks "
+            f"on this host instead"
+        )
+        raise RuntimeError(message)
+
+    if _inside_a_container():
+        # Not refused: reaching a runtime from in here means its socket was
+        # mounted deliberately, and that is the operator's call to have made.
+        # It is said out loud because the sandbox it buys is worth less than it
+        # looks -- that socket is root on the host (ADR-0008).
+        log.warning(
+            "isolation is on inside a container: launching containers from here needs the "
+            "runtime socket, which is root on the host and undoes most of what isolation buys",
+        )
+
+
+def _inside_a_container() -> bool:
+    """Whether this process looks like it is itself in a container."""
+    return Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()
 
 
 def ensure_safe_to_expose(settings: Settings) -> None:

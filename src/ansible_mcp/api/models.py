@@ -42,6 +42,7 @@ class RunRequest(Strict):
     tags: list[str] | None = None
     check: bool = False
     diff: bool = False
+    execution_environment: str | None = None
 
 
 class SavePlaybookRequest(Strict):

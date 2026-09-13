@@ -38,6 +38,10 @@ def router(services: Services, prefix: str) -> APIRouter:
         Answers 202 with task_id, status and check_mode, and a Location header
         pointing at the run. Follow it with GET on that location, and read what
         it printed from the logs below it.
+
+        execution_environment names the container image to run inside, and is
+        only accepted where this installation isolates runs; it cannot switch
+        isolation on or off. GET on the run reports where it actually ran.
         """
         async with record(services.audit, "run_playbook", body.model_dump(exclude_none=True)) as c:
             started = await runs.start(services, **body.model_dump())

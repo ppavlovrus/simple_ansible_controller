@@ -1,0 +1,20 @@
+# A minimal execution environment, for the isolation tests and as the smallest
+# honest example of what ADR-0008 means by "an image".
+#
+#   docker build -f tests/fixtures/ee/Containerfile -t ansible-mcp-ee:test .
+#
+# Two properties make an image usable here, and this file is mostly a
+# demonstration of them:
+#
+#   * ansible-playbook is on PATH;
+#   * there is no ENTRYPOINT, because ansible-runner appends the command it
+#     wants to run after the image name, and an entrypoint would swallow it.
+#
+# A real deployment points at a fuller execution environment carrying the
+# collections its playbooks need. Nothing here builds or distributes images.
+
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir --disable-pip-version-check "ansible-core>=2.16"
+
+CMD ["ansible-playbook", "--version"]

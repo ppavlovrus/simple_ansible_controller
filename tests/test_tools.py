@@ -212,6 +212,12 @@ async def test_responses_carry_only_the_fields_an_agent_needs(
         # reads as "applied".
         "check_mode",
         "diff_mode",
+        # Added with isolation, on the same argument as check_mode: "it
+        # succeeded" does not say whether it ran on the controller host or in a
+        # container, and that is part of reading the result. It is null on every
+        # installation that does not isolate, like the other nullable fields
+        # here, rather than appearing and disappearing between responses.
+        "execution_environment",
     }
 
 

@@ -57,7 +57,7 @@ fmt = "ruff format . && ruff check --fix ."
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "integration: needs the SSH test hosts from docker-compose.yml",
+    "integration: needs something outside this process -- the SSH test hosts from\n     docker-compose.yml, or a container runtime and the image make ee-image builds",
 ]
 
 [tool.ruff]

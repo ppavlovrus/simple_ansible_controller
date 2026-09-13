@@ -125,6 +125,15 @@ jobs:
           ANSIBLE_MCP_API_KEY: ci-controller-secret
         run: poetry run pytest tests/test_integration_container.py -v
 
+      # Isolation is the one feature whose whole point is where the playbook
+      # does NOT run, so it is worth a real container rather than an assertion
+      # about arguments.
+      - name: Build the execution environment image
+        run: make ee-image
+
+      - name: Run a playbook in a container, off the host
+        run: poetry run pytest tests/test_integration_isolation.py -v
+
       - name: Show what the containers logged, if that failed
         if: failure()
         run: docker compose logs --tail 80

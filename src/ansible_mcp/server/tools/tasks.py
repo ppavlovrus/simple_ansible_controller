@@ -39,6 +39,7 @@ def register(server: MCPServer, services: Services) -> None:
         tags: Any = None,
         check: bool = False,
         diff: bool = False,
+        execution_environment: str | None = None,
     ) -> str:
         """Run an Ansible playbook against an inventory and return immediately.
 
@@ -71,6 +72,11 @@ def register(server: MCPServer, services: Services) -> None:
                 are still contacted and the output says what would change.
             diff: show the differences a change would make (Ansible's --diff).
                 Most useful together with check.
+            execution_environment: container image to run the playbook inside.
+                Accepted only where this installation isolates runs, which
+                get_task_status reports; omitting it uses the image configured
+                there. It cannot turn isolation on or off, so leave it out
+                unless a specific image was asked for.
 
         Returns:
             A JSON object with task_id and the initial status. The run is not
@@ -86,6 +92,7 @@ def register(server: MCPServer, services: Services) -> None:
             tags=tags,
             check=check,
             diff=diff,
+            execution_environment=execution_environment,
         )
         return json.dumps(
             {**started, "hint": "poll get_task_status; read output with get_task_logs"},

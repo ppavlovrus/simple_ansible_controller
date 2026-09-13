@@ -41,6 +41,17 @@ class Settings(BaseSettings):
             ``inventories``, that a static provider may read inventory files
             from. Anything outside these is refused, so a provider cannot be
             pointed at an arbitrary file on the host.
+        isolation: run every playbook inside a container instead of on this
+            host. Off by default, because it needs a container runtime and
+            ADR-0003 promises none. The operator turns it on; a run may choose
+            the image but cannot decline the sandbox (ADR-0016).
+        container_runtime: what launches that container. Rootless ``podman`` is
+            the supported one; ``docker`` works but needs the service user in a
+            group that is root on this host, which gives away the privilege the
+            mode exists to withhold.
+        execution_image: the image runs happen in when nothing else is named.
+            It must already be present on this host and must carry
+            ``ansible-playbook`` on its PATH with no entrypoint of its own.
     """
 
     model_config = SettingsConfigDict(env_prefix="ANSIBLE_MCP_", extra="ignore")
@@ -55,6 +66,9 @@ class Settings(BaseSettings):
     keep_artifacts_days: int | None = Field(default=None, gt=0)
     transport: Literal["stdio", "streamable-http"] = "stdio"
     extra_inventory_dirs: list[Path] = Field(default_factory=list)
+    isolation: bool = False
+    container_runtime: Literal["podman", "docker"] = "podman"
+    execution_image: str | None = None
 
     @field_validator("api_key", mode="after")
     @classmethod
@@ -92,6 +106,14 @@ class Settings(BaseSettings):
     def inventories_dir(self) -> Path:
         """Directory inventory files are expected in."""
         return self.data_dir / "inventories"
+
+    @field_validator("execution_image", mode="after")
+    @classmethod
+    def _blank_image_is_absent(cls, value: str | None) -> str | None:
+        """Read a blank image name as no image, for the reason ``api_key`` does."""
+        if value is None:
+            return None
+        return value if value.strip() else None
 
     @property
     def allowed_inventory_dirs(self) -> tuple[Path, ...]:

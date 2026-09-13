@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from ansible_mcp.core.executor import Executor, RunResult, SyntaxCheckResult
+    from ansible_mcp.core.executor import Executor, Isolation, RunResult, SyntaxCheckResult
 
 log = logging.getLogger("ansible_mcp.task_manager")
 
@@ -53,6 +53,10 @@ class SubmitRequest:
     tags: list[str] = field(default_factory=list)
     check: bool = False
     diff: bool = False
+    # The image the caller asked for, if any. Only meaningful where the
+    # installation enables isolation: a caller cannot turn the sandbox on, and
+    # cannot turn it off either (ADR-0016).
+    execution_environment: str | None = None
 
 
 class TaskManager:
@@ -80,10 +84,19 @@ class TaskManager:
         """
         self._session_factory = session_factory
         self._executor = executor
+        # Read from the executor rather than passed again: one source for
+        # "where do playbooks run", so a run cannot be recorded as isolated and
+        # then execute on the host, or the reverse.
+        self._isolation = executor.isolation
         self._semaphore = asyncio.Semaphore(max_concurrent_tasks)
         self._run_timeout = run_timeout_seconds
         self._keep_artifacts_days = keep_artifacts_days
         self._running: dict[str, _InFlight] = {}
+
+    @property
+    def isolation(self) -> Isolation | None:
+        """Where playbooks run here, or ``None`` when they run on this host."""
+        return self._isolation
 
     async def recover_interrupted(self) -> int:
         """Fail tasks left active by a process that died.
@@ -181,6 +194,10 @@ class TaskManager:
                 tags=list(request.tags),
                 check_mode=request.check,
                 diff_mode=request.diff,
+                # Resolved now, not at execution time: the row is the record of
+                # what ran and where, and "where" is part of reproducing it
+                # (ADR-0005).
+                execution_environment=self._environment_for(request),
             )
             session.add(task)
             await session.commit()
@@ -191,6 +208,17 @@ class TaskManager:
         self._running[task_id] = _InFlight(background=background, cancellation=cancellation)
         background.add_done_callback(lambda _: self._running.pop(task_id, None))
         return task_id
+
+    def _environment_for(self, request: SubmitRequest) -> str | None:
+        """Return the image this run happens in, or ``None`` for this host.
+
+        A caller may name an image; whether there is a sandbox at all is the
+        installation's decision, so with isolation off this is always ``None``
+        and with it on it is always an image (ADR-0016).
+        """
+        if self._isolation is None:
+            return None
+        return self._isolation.image_for(request.execution_environment)
 
     async def get(self, task_id: str) -> Task | None:
         """Return one task, or ``None`` if there is no such task."""
@@ -363,6 +391,7 @@ class TaskManager:
             tags=request.tags,
             check=request.check,
             diff=request.diff,
+            execution_environment=self._environment_for(request),
         )
         run = asyncio.create_task(self._executor.run(run_request, cancellation))
 

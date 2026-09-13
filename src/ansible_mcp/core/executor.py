@@ -7,6 +7,13 @@ event loop stays free (ADR-0003).
 Each run gets its own directory under the data dir, holding the playbook and the
 inventory it ran with and the artifacts it produced. That directory is the whole
 record of the run on disk; the database keeps the metadata.
+
+When the installation enables isolation, the same call happens inside a
+container instead of on this host (ADR-0008, ADR-0016). That is a few extra
+arguments to the same library rather than a different code path, which is the
+reason the feature costs what it does: `ansible-runner` builds the
+`podman run` itself and mounts the run directory, the artifacts and the SSH
+configuration into it.
 """
 
 from __future__ import annotations
@@ -78,6 +85,29 @@ class RunRequest:
     tags: list[str] = field(default_factory=list)
     check: bool = False
     diff: bool = False
+    # The image this run happens in, already resolved from the caller's choice
+    # and the installation's default. None means it runs on this host, which is
+    # only possible when isolation is off (ADR-0016).
+    execution_environment: str | None = None
+
+
+@dataclass(frozen=True)
+class Isolation:
+    """Where playbooks run, when they do not run on this host.
+
+    Attributes:
+        runtime: what launches the container, ``podman`` or ``docker``.
+        image: the image used by a run that names none of its own. It has to be
+            present on this host already: nothing here pulls, builds or stores
+            images (ADR-0008).
+    """
+
+    runtime: str
+    image: str
+
+    def image_for(self, named: str | None) -> str:
+        """Return the image a run should use, its own or the configured one."""
+        return named or self.image
 
 
 @dataclass(frozen=True)
@@ -109,9 +139,42 @@ class RunResult:
 class Executor:
     """Runs playbooks, one directory per run."""
 
-    def __init__(self, tasks_dir: Path) -> None:
-        """Create an executor storing run directories under ``tasks_dir``."""
+    def __init__(self, tasks_dir: Path, isolation: Isolation | None = None) -> None:
+        """Create an executor storing run directories under ``tasks_dir``.
+
+        Args:
+            tasks_dir: root of the per-run directories.
+            isolation: where playbooks run. ``None`` runs them on this host.
+        """
         self._tasks_dir = tasks_dir
+        self._isolation = isolation
+
+    @property
+    def isolation(self) -> Isolation | None:
+        """Where playbooks run, or ``None`` when they run on this host."""
+        return self._isolation
+
+    def _containerized(self, image: str | None) -> dict[str, Any]:
+        """Return the arguments that move one `ansible-runner` call off the host.
+
+        Empty when isolation is off, which is what keeps the two modes one code
+        path instead of two.
+        """
+        if self._isolation is None:
+            return {}
+        return {
+            "process_isolation": True,
+            "process_isolation_executable": self._isolation.runtime,
+            "container_image": self._isolation.image_for(image),
+            # /runner is where ansible-runner mounts the run directory, and the
+            # only path inside the container that is certainly writable by
+            # whoever the process turns out to be. Without this, ansible tries
+            # to create its temporary directory under a home that does not
+            # exist -- docker runs the image as the host uid, which usually
+            # matches no user in it -- and the run dies at "Unable to create
+            # local directories '/.ansible/tmp'". Found by running it.
+            "envvars": {"HOME": "/runner"},
+        }
 
     def run_dir(self, task_id: str) -> Path:
         """Return the directory holding one run's inputs and artifacts."""
@@ -248,6 +311,11 @@ class Executor:
                     ident="check",
                     quiet=True,
                     cmdline="--syntax-check",
+                    # Parsing a playbook executes none of it, but an installation
+                    # that turned isolation on did so to keep ansible off this
+                    # host entirely, and "entirely" is a promise worth keeping
+                    # for the cheap path too.
+                    **self._containerized(None),
                 )
             except Exception as error:
                 return SyntaxCheckResult(ok=False, output=f"{type(error).__name__}: {error}")
@@ -289,6 +357,7 @@ class Executor:
                 # structured event data for the runs where it is worth reading.
                 # stdout, which is what get_task_logs returns, is unaffected.
                 only_failed_event_data=True,
+                **self._containerized(request.execution_environment),
             )
         # A broken playbook, an unreadable inventory or a missing binary all
         # surface here. The caller gets a readable message, never a traceback.

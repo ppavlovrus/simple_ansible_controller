@@ -1,6 +1,13 @@
 """The core: running playbooks and tracking what happened to them."""
 
-from .executor import Cancellation, Executor, RunRequest, RunResult, SyntaxCheckResult
+from .executor import (
+    Cancellation,
+    Executor,
+    Isolation,
+    RunRequest,
+    RunResult,
+    SyntaxCheckResult,
+)
 from .playbook_store import (
     InvalidPlaybookError,
     PlaybookStore,
@@ -14,6 +21,7 @@ __all__ = [
     "Cancellation",
     "Executor",
     "InvalidPlaybookError",
+    "Isolation",
     "PlaybookStore",
     "RunRequest",
     "RunResult",
