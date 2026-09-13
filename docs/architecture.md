@@ -9,13 +9,18 @@ What the code does now. Why it is shaped this way is in the
 
 ```mermaid
 graph TB
-    Agent[AI agent] -->|MCP| Tools
-    Human[curl / scripts] -.->|REST, not built yet| Tools
+    Agent[AI agent] -->|MCP, /mcp| Tools
+    Human[curl / scripts] -->|REST, /api/v1| Routes
 
-    subgraph Interface["server/"]
-        Tools[14 tools<br/>tasks, playbooks, providers]
-        Instr[instrumentation<br/>audit + readable failures]
-        Auth[bearer check<br/>HTTP only]
+    subgraph Surfaces["server/tools/ and api/"]
+        Tools[14 tools<br/>descriptions, coercion, confirm]
+        Routes[REST routes<br/>methods, status codes, schema]
+        Auth[bearer check<br/>one token, both surfaces]
+    end
+
+    subgraph Ops["operations/"]
+        Rules[runs, playbooks, providers<br/>the rules, the caps, the refusals]
+        Rec[recording<br/>one audit entry per call]
     end
 
     subgraph Core["core/"]
@@ -35,11 +40,15 @@ graph TB
     Ansible[ansible-playbook]
 
     Auth --> Tools
-    Tools --> Instr
-    Instr --> TM
-    Instr --> Store
-    Instr --> Registry
-    Instr --> Audit
+    Auth --> Routes
+    Tools --> Rules
+    Routes --> Rules
+    Tools --> Rec
+    Routes --> Rec
+    Rules --> TM
+    Rules --> Store
+    Rules --> Registry
+    Rec --> Audit
     TM --> Exec
     TM --> Redact
     Registry --> Static
@@ -50,8 +59,11 @@ graph TB
     Registry --> Data
 ```
 
-Three layers, one direction of dependency: `server/` knows about `core/` and
-`providers/`, they know about `db/`, and nothing knows about `server/`.
+Four layers, one direction of dependency. The two surfaces know about
+`operations/`; `operations/` knows about `core/` and `providers/`; they know
+about `db/`; and nothing knows about a surface. That is what lets the same
+refusal reach an agent as a sentence and a script as a 400 without either
+surface holding a rule of its own (ADR-0015).
 
 ## What each part is responsible for
 
@@ -63,14 +75,46 @@ Three layers, one direction of dependency: `server/` knows about `core/` and
 | `tools/tasks.py` | `run_playbook`, `get_task_status`, `get_task_logs`, `cancel_task`, `list_tasks` |
 | `tools/playbooks.py` | `save_playbook`, `syntax_check_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
 | `tools/providers.py` | `add_provider`, `list_providers`, `get_inventory`, `delete_provider` |
-| `instrumentation.py` | One wrapper per tool: writes the audit entry, turns a failure into a sentence |
-| `errors.py` | How a tool refuses: `require`, `found`, `confirmed` |
-| `coercion.py` | Accepts the argument shapes agents actually send |
-| `http.py` | Bearer check, `/healthz`, and the uvicorn entry |
+| `instrumentation.py` | One wrapper per tool: records the call, turns a failure into a sentence |
+| `http.py` | Bearer check, `/healthz`, and the uvicorn entry that serves both surfaces |
 
 A tool is a function with a docstring, because the docstring is what an agent
 reads when choosing it. That makes tool descriptions part of the contract rather
 than documentation, and the [eval harness](../evals/README.md) measures them.
+What a tool does *not* hold is the rule it enforces: that lives one layer down,
+where the REST routes read it too.
+
+### `api/`
+
+| Module | Responsibility |
+|---|---|
+| `app.py` | Builds the REST application and its schema at `/api/v1/openapi.json` |
+| `routes/runs.py` | `POST /runs`, `GET /runs`, `GET /runs/{id}`, `GET /runs/{id}/logs`, `POST /runs/{id}/cancel` |
+| `routes/playbooks.py` | `GET`/`PUT`/`DELETE /playbooks[/{name}]`, `POST /syntax-checks` |
+| `routes/providers.py` | `GET`/`PUT`/`DELETE /providers[/{name}]`, `GET /providers/{name}/inventory` |
+| `models.py` | What a request body may contain; unknown fields are refused |
+| `errors.py` | Refusal to status code: 400 wrong, 404 absent, 500 our fault |
+
+There is no `confirm` parameter here: on this surface the method is the
+statement of intent (ADR-0015). The answers are the operations' own JSON, so
+nothing can be added below and silently filtered out on the way through.
+
+### `operations/`
+
+| Module | Responsibility |
+|---|---|
+| `runs.py` | Start a run, read its status and logs, cancel it, list recent ones |
+| `playbooks.py` | Store, list, read, syntax-check and delete playbooks |
+| `providers.py` | Configure providers, resolve an inventory, remove a configuration |
+| `errors.py` | How a call is refused: `require`, `found`, `confirmed` |
+| `coercion.py` | Accepts the argument shapes callers actually send |
+| `limits.py` | What one answer is capped at, wherever it is asked for |
+| `recording.py` | One audit entry per call, under a name both surfaces share |
+
+This is where "exactly one of playbook or playbook_name", "a malformed playbook
+is refused before a task exists" and "at most 2000 log lines per call" live. A
+rule held twice is a rule that eventually differs between the copies, so it is
+held once.
 
 ### `core/`
 
@@ -151,8 +195,8 @@ the file has no reason to outlive the run.
 
 Python 3.11, the MCP SDK (`MCPServer`, formerly `FastMCP`), `ansible-runner` with
 `ansible-core`, SQLAlchemy over SQLite in WAL mode, `pydantic-settings`, uvicorn
-and Starlette for the HTTP transport. No database server, no broker, no worker
-fleet (ADR-0003).
+and Starlette for the HTTP transport, FastAPI for the REST surface. No database
+server, no broker, no worker fleet (ADR-0003).
 
 ## Limits worth knowing before reading the code
 
@@ -162,5 +206,9 @@ fleet (ADR-0003).
   not by whom (ADR-0012).
 - Run variables sit in the database in the clear, because a run cannot be
   reproduced without them. The database file is a sensitive artifact.
-- No REST surface yet, despite ADR-0002 promising one. MCP came first and the
-  REST layer has not been written.
+- The same operation has two names: `run_playbook` and `POST /api/v1/runs`. The
+  audit log records the tool name for both, so a REST call appears under the MCP
+  name, and nothing says which door a call came through.
+- Serving HTTP means the REST application is the outer one and runs the MCP
+  lifespan. An in-process test never sees that, because an ASGI transport sends
+  no lifespan; `tests/test_http_serving.py` starts a real server instead.

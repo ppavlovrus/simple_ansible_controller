@@ -12,7 +12,8 @@
 
 Сервис, который по запросу выполняет плейбуки Ansible и хранит историю, логи и
 артефакты каждого прогона. Основной интерфейс — MCP, то есть им напрямую
-управляет ИИ-агент.
+управляет ИИ-агент; когда сервис отдаёт HTTP, те же операции доступны и на
+`/api/v1` — для человека с curl.
 
 Это **тупой исполнитель**: он не пишет плейбуки, не выбирает хосты и не судит,
 разумно ли запускать то, что ему дали. Решаете вы (или ваш агент), он выполняет и
@@ -274,6 +275,110 @@ points `ansible_mcp.providers`; облачные — в планах, но не 
 
 Вопрос «а что он *сделает*» — это `run_playbook` с `check=true`: сухой прогон
 подключается к хостам и сообщает, что изменилось бы.
+
+## REST-поверхность, для людей и скриптов
+
+Всё, что выше, идёт через агента. Когда контроллером нужно управлять самому, те
+же операции доступны на `/api/v1` — на том же порту, что и `/mcp`, и за тем же
+токеном. Основным интерфейсом остаётся MCP (ADR-0002); это дверь для curl, cron
+и того, чем вы уже скриптуете.
+
+Отдаётся только HTTP-транспортом. При работе через stdio порта нет, значит нет и
+REST.
+
+| Инструмент | Маршрут |
+|---|---|
+| `run_playbook` | `POST /api/v1/runs` |
+| `get_task_status` | `GET /api/v1/runs/{id}` |
+| `get_task_logs` | `GET /api/v1/runs/{id}/logs?tail=&after_line=` |
+| `cancel_task` | `POST /api/v1/runs/{id}/cancel` |
+| `list_tasks` | `GET /api/v1/runs?status=&limit=` |
+| `save_playbook` | `PUT /api/v1/playbooks/{name}` |
+| `list_playbooks` / `get_playbook` | `GET /api/v1/playbooks` / `GET /api/v1/playbooks/{name}?full=` |
+| `delete_playbook` | `DELETE /api/v1/playbooks/{name}` |
+| `syntax_check_playbook` | `POST /api/v1/syntax-checks` |
+| `add_provider` / `list_providers` | `PUT /api/v1/providers/{name}` / `GET /api/v1/providers` |
+| `get_inventory` | `GET /api/v1/providers/{name}/inventory?full=` |
+| `delete_provider` | `DELETE /api/v1/providers/{name}` |
+
+Полный цикл против сервера, запущенного с `ANSIBLE_MCP_API_KEY=s3cret`:
+
+```console
+$ export AUTH="Authorization: Bearer s3cret"
+$ export API=http://127.0.0.1:8080/api/v1
+
+$ curl -s -X PUT $API/playbooks/site -H "$AUTH" -H 'Content-Type: application/json' \
+    -d "{\"content\": $(jq -Rs . < site.yml), \"description\": \"say hello\"}"
+{"name":"site","updated_at":"2026-09-13T09:05:56.480931+00:00","lines":8}
+
+$ curl -s -X PUT $API/providers/lab -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"plugin_type":"static","config":{"inventory":"[all]\nlocalhost ansible_connection=local\n"}}'
+{"name":"lab","plugin_type":"static","usable":true}
+
+$ curl -si -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site","provider":"lab"}'
+HTTP/1.1 202 Accepted
+location: /api/v1/runs/8aeac1aeb682464c81b55b0a338e45ec
+
+{"task_id":"8aeac1aeb682464c81b55b0a338e45ec","status":"pending","check_mode":false}
+
+$ curl -s $API/runs/8aeac1aeb682464c81b55b0a338e45ec -H "$AUTH" | jq -c '{status, exit_code, check_mode}'
+{"status":"success","exit_code":0,"check_mode":false}
+
+$ curl -s "$API/runs/8aeac1aeb682464c81b55b0a338e45ec/logs?tail=3" -H "$AUTH" | jq -r .output
+PLAY RECAP *********************************************************************
+localhost                  : ok=1    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+(Цветовые коды Ansible там же: терминал их отрисует, агент проигнорирует.)
+
+Сухой прогон — тот же вызов с `"check": true`, и ответ об этом говорит, как
+потом говорит и сам прогон: иначе «успешно» читается как «применено».
+
+```console
+$ curl -s -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site","provider":"lab","check":true}'
+{"task_id":"359ae9d780144e42bb38023161d78c8a","status":"pending","check_mode":true}
+```
+
+Проверка плейбука разбирает его и ничего не запускает, поэтому в списке прогонов
+ничего не появляется:
+
+```console
+$ curl -s -X POST $API/syntax-checks -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site"}'
+{"ok":true,"playbook_name":"site","truncated":false,"output":"playbook: playbook.yml"}
+```
+
+Отказы приходят одной фразой с кодом ответа, а не трейсбеком:
+
+```console
+$ curl -s $API/runs/no-such-run -H "$AUTH"
+{"error":"no task with id 'no-such-run'"}
+
+$ curl -s -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' -d '{"playbook_name":"site"}'
+{"error":"neither inventory nor provider was given; pass exactly one. Use inventory with the INI or YAML text, or provider with the name of a configured source."}
+
+$ curl -s $API/runs -H 'Authorization: Bearer wrong'
+{"error": "a bearer token is required"}
+```
+
+| Код | Что значит |
+|---|---|
+| 202 | Прогон принят, но ещё не закончен |
+| 400 | Запрос неверен — в том числе опечатка в имени поля: её отвергают, а не игнорируют |
+| 401 | Токена нет или он не тот |
+| 404 | Того, что вы назвали, здесь нет |
+| 500 | Дефект в самом сервисе; трейсбек — в его журнале, а не в ответе |
+
+Два отличия от инструментов сделаны намеренно (ADR-0015). Здесь нет
+`confirm=true`: `DELETE` и `POST .../cancel` уже говорят, что вы имели в виду.
+И `DELETE` отвечает 404, когда удалять было нечего, — там, где инструмент
+отвечает `deleted: false`.
+
+Схема лежит на `/api/v1/openapi.json`, за токеном, как и всё остальное.
+Интерактивные страницы выключены сознательно: они грузят свой JavaScript с CDN,
+а сервис рассчитан работать там, где до CDN может не быть маршрута.
 
 ## Чего он делать не будет
 

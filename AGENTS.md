@@ -76,9 +76,18 @@ context is a failure mode, not a detail.
 an agent cannot act on makes it retry the identical call — that is observed
 behaviour, not a theory.
 
-**Accept equivalent argument shapes, refuse ambiguous ones.** `server/coercion.py`
-takes a parsed playbook where text is declared, and an empty string where a list
-is. It still refuses a bare inventory where an object belongs, with an example.
+**Accept equivalent argument shapes, refuse ambiguous ones.**
+`operations/coercion.py` takes a parsed playbook where text is declared, and an
+empty string where a list is. It still refuses a bare inventory where an object
+belongs, with an example.
+
+**A rule lives in `operations/`, never in a surface.** There are two callers now:
+the MCP tools and the REST routes. A tool keeps its description, the argument
+shapes agents send and the confirm gate; a route keeps its method, status code
+and schema; everything either of them *decides* -- what is refused, what is
+capped, what comes back -- sits below both, where there is one copy of it
+(ADR-0015). If you find yourself validating in a route, you are writing the
+second copy.
 
 **Destructive tools take `confirm=false` by default.** Cancel and delete refuse
 without it.
@@ -123,7 +132,6 @@ what happened, not by reading code.
 
 Worth knowing before you trip over them:
 
-- No REST surface, despite ADR-0002 promising one.
 - `Task.variables` sit in the database in the clear, because a run cannot be
   reproduced without them. The database file is sensitive.
 - One token for the whole instance, so the audit log records what was done and

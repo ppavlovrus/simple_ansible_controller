@@ -1,6 +1,7 @@
 # ansible-mcp
 
-A minimal Ansible controller with an MCP interface, for AI agents.
+A minimal Ansible controller with an MCP interface, for AI agents — and a REST
+API for the humans who work alongside them.
 
 Give it a playbook and an inventory; it runs them and keeps the history, the logs
 and the artifacts of every run. One process, one SQLite file, one container. No
@@ -79,6 +80,25 @@ For a host installation, see [packaging](packaging/README.md).
 A provider is a small plugin that produces an inventory: `static` ships built in,
 others register through the `ansible_mcp.providers` entry point group. Cloud
 providers are the next ones planned.
+
+## The same thing with curl
+
+When it serves HTTP, every one of those operations is also at `/api/v1`, on the
+same port as `/mcp` and behind the same token:
+
+```bash
+curl -si -X POST http://127.0.0.1:8080/api/v1/runs \
+  -H "Authorization: Bearer $ANSIBLE_MCP_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"playbook_name":"site","provider":"lab"}'
+HTTP/1.1 202 Accepted
+location: /api/v1/runs/8aeac1aeb682464c81b55b0a338e45ec
+```
+
+Then `GET /api/v1/runs/{id}` follows it and `.../logs` reads what it printed.
+MCP stays the primary interface and REST is the second door onto the same
+operations (ADR-0002, ADR-0015); the schema is at `/api/v1/openapi.json`, and
+the [user guide](docs/user-guide.md#the-rest-surface-for-people-and-scripts) has
+the whole loop.
 
 ## What it deliberately does not do
 
@@ -159,9 +179,9 @@ Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 ## Status
 
 The core works: runs, cancellation, timeouts, recovery after a crash, playbook
-storage, providers, redaction, an audit trail and a checked token. Not yet: the
-REST surface, cloud providers, execution-environment isolation, and a license
-file — see the roadmap.
+storage, providers, redaction, an audit trail, a checked token and both
+surfaces — MCP and REST. Not yet: cloud providers,
+execution-environment isolation, and a license file — see the roadmap.
 
 ## License
 

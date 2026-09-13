@@ -9,13 +9,18 @@
 
 ```mermaid
 graph TB
-    Agent[ИИ-агент] -->|MCP| Tools
-    Human[curl / скрипты] -.->|REST, ещё не сделан| Tools
+    Agent[ИИ-агент] -->|MCP, /mcp| Tools
+    Human[curl / скрипты] -->|REST, /api/v1| Routes
 
-    subgraph Interface["server/"]
-        Tools[14 инструментов<br/>задачи, плейбуки, провайдеры]
-        Instr[instrumentation<br/>аудит + читаемые отказы]
-        Auth[проверка токена<br/>только HTTP]
+    subgraph Surfaces["server/tools/ и api/"]
+        Tools[14 инструментов<br/>описания, коэрция, confirm]
+        Routes[REST-маршруты<br/>методы, коды ответа, схема]
+        Auth[проверка токена<br/>один токен на обе поверхности]
+    end
+
+    subgraph Ops["operations/"]
+        Rules[runs, playbooks, providers<br/>правила, лимиты, отказы]
+        Rec[recording<br/>одна запись аудита на вызов]
     end
 
     subgraph Core["core/"]
@@ -35,11 +40,15 @@ graph TB
     Ansible[ansible-playbook]
 
     Auth --> Tools
-    Tools --> Instr
-    Instr --> TM
-    Instr --> Store
-    Instr --> Registry
-    Instr --> Audit
+    Auth --> Routes
+    Tools --> Rules
+    Routes --> Rules
+    Tools --> Rec
+    Routes --> Rec
+    Rules --> TM
+    Rules --> Store
+    Rules --> Registry
+    Rec --> Audit
     TM --> Exec
     TM --> Redact
     Registry --> Static
@@ -50,8 +59,11 @@ graph TB
     Registry --> Data
 ```
 
-Три слоя и одно направление зависимостей: `server/` знает про `core/` и
-`providers/`, они знают про `db/`, и никто не знает про `server/`.
+Четыре слоя и одно направление зависимостей. Обе поверхности знают про
+`operations/`, `operations/` знает про `core/` и `providers/`, те — про `db/`, и
+никто не знает про поверхность. Именно это позволяет одному и тому же отказу
+дойти до агента фразой, а до скрипта — кодом 400, и при этом ни одна из
+поверхностей не держит собственного правила (ADR-0015).
 
 ## За что отвечает каждая часть
 
@@ -64,13 +76,45 @@ graph TB
 | `tools/playbooks.py` | `save_playbook`, `syntax_check_playbook`, `list_playbooks`, `get_playbook`, `delete_playbook` |
 | `tools/providers.py` | `add_provider`, `list_providers`, `get_inventory`, `delete_provider` |
 | `instrumentation.py` | Одна обёртка на инструмент: пишет аудит, превращает сбой в одну фразу |
-| `errors.py` | Как инструмент отказывает: `require`, `found`, `confirmed` |
-| `coercion.py` | Принимает формы аргументов, которые агенты реально присылают |
-| `http.py` | Проверка токена, `/healthz`, запуск uvicorn |
+| `http.py` | Проверка токена, `/healthz` и запуск uvicorn, отдающий обе поверхности |
 
 Инструмент — это функция с докстрингом, потому что докстринг и есть то, что
 агент читает при выборе. Поэтому описания инструментов — часть контракта, а не
-документация, и [eval-харнесс](../../evals/README.md) их измеряет.
+документация, и [eval-харнесс](../../evals/README.md) их измеряет. Чего
+инструмент НЕ держит — так это правила, которое он применяет: оно живёт слоем
+ниже, где его читают и REST-маршруты.
+
+### `api/`
+
+| Модуль | Ответственность |
+|---|---|
+| `app.py` | Собирает REST-приложение и его схему на `/api/v1/openapi.json` |
+| `routes/runs.py` | `POST /runs`, `GET /runs`, `GET /runs/{id}`, `GET /runs/{id}/logs`, `POST /runs/{id}/cancel` |
+| `routes/playbooks.py` | `GET`/`PUT`/`DELETE /playbooks[/{name}]`, `POST /syntax-checks` |
+| `routes/providers.py` | `GET`/`PUT`/`DELETE /providers[/{name}]`, `GET /providers/{name}/inventory` |
+| `models.py` | Что может быть в теле запроса; неизвестные поля отвергаются |
+| `errors.py` | Отказ в код ответа: 400 — запрос неверен, 404 — этого здесь нет, 500 — сломались мы |
+
+Параметра `confirm` здесь нет: на этой поверхности намерение выражает метод
+(ADR-0015). Ответы — это JSON самих операций, а не отфильтрованная модель
+ответа, поэтому поле, добавленное ниже, не может молча исчезнуть по дороге.
+
+### `operations/`
+
+| Модуль | Ответственность |
+|---|---|
+| `runs.py` | Запустить прогон, прочитать его статус и логи, отменить, перечислить недавние |
+| `playbooks.py` | Сохранить, перечислить, прочитать, проверить синтаксис и удалить плейбук |
+| `providers.py` | Настроить провайдера, получить инвентарь, удалить настройку |
+| `errors.py` | Как вызов отвергается: `require`, `found`, `confirmed` |
+| `coercion.py` | Принимает формы аргументов, которые вызывающие реально присылают |
+| `limits.py` | Чем ограничен один ответ, кто бы его ни запросил |
+| `recording.py` | Одна запись аудита на вызов, под именем, общим для обеих поверхностей |
+
+Здесь живут «ровно одно из playbook или playbook_name», «сломанный плейбук
+отвергается до того, как появится задача» и «не больше 2000 строк лога за
+вызов». Правило, которое держат дважды, со временем начинает различаться в
+копиях, — поэтому его держат один раз.
 
 ### `core/`
 
@@ -152,8 +196,8 @@ sequenceDiagram
 
 Python 3.11, MCP SDK (`MCPServer`, ранее `FastMCP`), `ansible-runner` с
 `ansible-core`, SQLAlchemy поверх SQLite в режиме WAL, `pydantic-settings`,
-uvicorn и Starlette для HTTP-транспорта. Ни сервера БД, ни брокера, ни парка
-воркеров (ADR-0003).
+uvicorn и Starlette для HTTP-транспорта, FastAPI для REST-поверхности. Ни
+сервера БД, ни брокера, ни парка воркеров (ADR-0003).
 
 ## Ограничения, которые стоит знать до чтения кода
 
@@ -163,5 +207,10 @@ uvicorn и Starlette для HTTP-транспорта. Ни сервера БД,
   сделано, но не кем (ADR-0012).
 - Переменные прогона лежат в базе открытым текстом, потому что без них прогон
   не воспроизвести. Файл базы — чувствительный артефакт.
-- REST-поверхности пока нет, хотя ADR-0002 её обещает: MCP был первым, а REST
-  ещё не написан.
+- У одной и той же операции два имени: `run_playbook` и `POST /api/v1/runs`.
+  Аудит пишет для обоих имя инструмента, поэтому REST-вызов виден под именем
+  MCP, и ничто не говорит, через какую дверь он пришёл.
+- Отдавать HTTP — значит поставить REST-приложение снаружи, и lifespan MCP
+  запускает теперь оно. Тест внутри процесса этого не увидит: ASGI-транспорт
+  вообще не шлёт lifespan, поэтому `tests/test_http_serving.py` поднимает
+  настоящий сервер.

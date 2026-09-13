@@ -12,7 +12,8 @@ hand. Timestamps and ids differ; the shapes do not.
 
 A service that runs Ansible playbooks on request and keeps the history, logs and
 artifacts of every run. Its primary interface is MCP, so an AI agent drives it
-directly.
+directly; when it serves HTTP, the same operations are also at `/api/v1` for a
+person with curl.
 
 It is a **dumb executor**: it does not write playbooks, choose hosts, or judge
 whether running something is wise. You (or your agent) decide; it executes and
@@ -271,6 +272,110 @@ is valid, contacting nothing and recording no task. It runs Ansible's own
 
 For "what would this *do*", that is `run_playbook` with `check=true`: a dry run
 connects to the hosts and reports what would change.
+
+## The REST surface, for people and scripts
+
+Everything above goes through an agent. When you want to drive the controller
+yourself, the same operations are at `/api/v1`, on the same port as `/mcp` and
+behind the same token. MCP is still the primary interface (ADR-0002); this is
+the door for curl, cron and whatever you already script with.
+
+It is only served by the HTTP transport. Running over stdio, there is no port
+and no REST.
+
+| Tool | Route |
+|---|---|
+| `run_playbook` | `POST /api/v1/runs` |
+| `get_task_status` | `GET /api/v1/runs/{id}` |
+| `get_task_logs` | `GET /api/v1/runs/{id}/logs?tail=&after_line=` |
+| `cancel_task` | `POST /api/v1/runs/{id}/cancel` |
+| `list_tasks` | `GET /api/v1/runs?status=&limit=` |
+| `save_playbook` | `PUT /api/v1/playbooks/{name}` |
+| `list_playbooks` / `get_playbook` | `GET /api/v1/playbooks` / `GET /api/v1/playbooks/{name}?full=` |
+| `delete_playbook` | `DELETE /api/v1/playbooks/{name}` |
+| `syntax_check_playbook` | `POST /api/v1/syntax-checks` |
+| `add_provider` / `list_providers` | `PUT /api/v1/providers/{name}` / `GET /api/v1/providers` |
+| `get_inventory` | `GET /api/v1/providers/{name}/inventory?full=` |
+| `delete_provider` | `DELETE /api/v1/providers/{name}` |
+
+The whole loop, against a server started with `ANSIBLE_MCP_API_KEY=s3cret`:
+
+```console
+$ export AUTH="Authorization: Bearer s3cret"
+$ export API=http://127.0.0.1:8080/api/v1
+
+$ curl -s -X PUT $API/playbooks/site -H "$AUTH" -H 'Content-Type: application/json' \
+    -d "{\"content\": $(jq -Rs . < site.yml), \"description\": \"say hello\"}"
+{"name":"site","updated_at":"2026-09-13T09:05:56.480931+00:00","lines":8}
+
+$ curl -s -X PUT $API/providers/lab -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"plugin_type":"static","config":{"inventory":"[all]\nlocalhost ansible_connection=local\n"}}'
+{"name":"lab","plugin_type":"static","usable":true}
+
+$ curl -si -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site","provider":"lab"}'
+HTTP/1.1 202 Accepted
+location: /api/v1/runs/8aeac1aeb682464c81b55b0a338e45ec
+
+{"task_id":"8aeac1aeb682464c81b55b0a338e45ec","status":"pending","check_mode":false}
+
+$ curl -s $API/runs/8aeac1aeb682464c81b55b0a338e45ec -H "$AUTH" | jq -c '{status, exit_code, check_mode}'
+{"status":"success","exit_code":0,"check_mode":false}
+
+$ curl -s "$API/runs/8aeac1aeb682464c81b55b0a338e45ec/logs?tail=3" -H "$AUTH" | jq -r .output
+PLAY RECAP *********************************************************************
+localhost                  : ok=1    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+(Ansible's colour codes are in there too; your terminal renders them, and an
+agent ignores them.)
+
+A dry run is the same call with `"check": true`, and the answer says so — as
+does the run afterwards, because "succeeded" would otherwise read as "applied":
+
+```console
+$ curl -s -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site","provider":"lab","check":true}'
+{"task_id":"359ae9d780144e42bb38023161d78c8a","status":"pending","check_mode":true}
+```
+
+Checking a playbook parses it and runs nothing, so no run appears in the list:
+
+```console
+$ curl -s -X POST $API/syntax-checks -H "$AUTH" -H 'Content-Type: application/json' \
+    -d '{"playbook_name":"site"}'
+{"ok":true,"playbook_name":"site","truncated":false,"output":"playbook: playbook.yml"}
+```
+
+Refusals come back as one sentence with a status code, never as a stack trace:
+
+```console
+$ curl -s $API/runs/no-such-run -H "$AUTH"
+{"error":"no task with id 'no-such-run'"}
+
+$ curl -s -X POST $API/runs -H "$AUTH" -H 'Content-Type: application/json' -d '{"playbook_name":"site"}'
+{"error":"neither inventory nor provider was given; pass exactly one. Use inventory with the INI or YAML text, or provider with the name of a configured source."}
+
+$ curl -s $API/runs -H 'Authorization: Bearer wrong'
+{"error": "a bearer token is required"}
+```
+
+| Code | Meaning |
+|---|---|
+| 202 | The run was accepted; it has not finished |
+| 400 | The request was wrong — including a field you misspelled, which is refused rather than ignored |
+| 401 | No token, or the wrong one |
+| 404 | What you named is not here |
+| 500 | A defect in this service; the traceback is in its log, not in the answer |
+
+Two differences from the tools are deliberate (ADR-0015). There is no
+`confirm=true`: `DELETE` and `POST .../cancel` already say what you meant.
+And `DELETE` answers 404 when there was nothing to delete, where the tool
+answers `deleted: false`.
+
+The schema is at `/api/v1/openapi.json`, behind the token like everything else.
+The interactive pages are off on purpose: they load their JavaScript from a CDN,
+and this service is built to run where there may be no route to one.
 
 ## What it will not do
 

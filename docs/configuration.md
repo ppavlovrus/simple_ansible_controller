@@ -37,6 +37,14 @@ openssl rand -hex 32
 and hold its slot while it does. `ansible-runner` has no timeout of its own, so
 this is the only limit there is.
 
+## What a port gives you
+
+`streamable-http` serves both surfaces on the one port and the one token: `/mcp`
+for agents, `/api/v1` for people and scripts, with `/api/v1/openapi.json`
+describing the second (ADR-0015). `/healthz` is the only path served without a
+token. There is no setting to serve one surface without the other: the token
+that reaches either reaches both, so the distinction would protect nothing.
+
 ## What is kept on disk, and for how long
 
 A finished run leaves its artifacts under `$ANSIBLE_MCP_DATA_DIR/tasks/<id>/`:
