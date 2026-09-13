@@ -10,7 +10,7 @@
 # the runtime copies that virtualenv and nothing else, so Poetry, the wheel, the
 # sources and pip's cache never reach the shipped image.
 
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -43,7 +43,7 @@ RUN rm -rf /opt/venv/lib/python3.11/site-packages/ansible_test \
     && find /opt/venv -name "*.dist-info" -type d -exec rm -rf {}/RECORD \;
 
 
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # ansible-runner shells out to ansible-playbook, which reaches hosts over SSH.
 # sshpass is what Ansible needs when an inventory authenticates with a password
