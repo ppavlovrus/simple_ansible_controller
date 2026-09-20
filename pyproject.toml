@@ -11,7 +11,7 @@ dependencies = [
     # dependency, not a development one.
     "ansible-runner>=2.4",
     "ansible-core>=2.16",
-    "sqlalchemy[asyncio]>=2.0",
+    "sqlalchemy[asyncio]>=2.0.54",
     # SQLAlchemy's own marker for greenlet excludes arm64, so its async mode
     # silently lacks a dependency on Apple Silicon. Ask for it explicitly.
     "greenlet>=3.0",
