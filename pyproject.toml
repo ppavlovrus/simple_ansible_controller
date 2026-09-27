@@ -19,7 +19,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "pyyaml>=6.0",
     "uvicorn>=0.30",
-    "starlette>=0.40",
+    "starlette>=1.7.0",
     # The REST surface. Installed anyway as part of the MCP SDK's world, but a
     # dependency that is imported is a dependency that is declared.
     "fastapi>=0.115",
