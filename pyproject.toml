@@ -33,12 +33,12 @@ ansible-mcp = "ansible_mcp.__main__:main"
 packages = [{ include = "ansible_mcp", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^9.0.3"
+pytest = "^9.2.0"
 pytest-asyncio = "^1.4"
-ruff = "^0.16"
-mypy = "^2.3"
+ruff = "^0.17"
+mypy = "^2.4"
 taskipy = "^1.13"
-pre-commit = "^4.0"
+pre-commit = "^4.7"
 types-pyyaml = "^6.0"
 httpx = "^0.28.1"
 
