@@ -197,10 +197,9 @@ Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 
 The core works: runs, cancellation, timeouts, recovery after a crash, playbook
 storage, providers, redaction, an audit trail, a checked token and both
-surfaces — MCP and REST. Not yet: cloud providers,
-execution-environment isolation, and a license file — see the roadmap.
+surfaces — MCP and REST. Not yet: cloud providers and
+execution-environment isolation — see the roadmap.
 
 ## License
 
-None yet, which means nobody may legally use, modify or redistribute this.
-Apache-2.0 is intended; adding it is blocked on deciding who holds the copyright.
+Apache-2.0 — see [LICENSE](LICENSE).

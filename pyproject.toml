@@ -3,6 +3,7 @@ name = "ansible-mcp"
 version = "0.1.0"
 description = "Minimal Ansible controller with an MCP interface for AI agents"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11,<4.0"
 authors = [{ name = "Pavel Pavlov", email = "ppavlovrus@gmail.com" }]
 dependencies = [

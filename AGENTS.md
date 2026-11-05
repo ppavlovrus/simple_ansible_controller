@@ -142,7 +142,6 @@ Worth knowing before you trip over them:
   reproduced without them. The database file is sensitive.
 - One token for the whole instance, so the audit log records what was done and
   not by whom.
-- No license file, which blocks any external use. Apache-2.0 is intended.
 - Execution-environment isolation exists but is off by default and is only
   exercised by `make isolation`, which needs a container runtime. The invariant
   to keep: the operator enables the mode, a run may pick an image but may never
