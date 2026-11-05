@@ -71,6 +71,10 @@ It exists because tool descriptions answer "what does this tool do" and a skill
 answers "how do I work with this server" — the second does not fit in a
 docstring.
 
+The same skill is listed on Agensi as
+[Ansible Playbook Controller](https://www.agensi.io/skills/ansible-playbook-controller)
+— same file behind the listing, one-click for marketplace users.
+
 ## Reaching the hosts
 
 Connecting a client is half of it; the server then needs credentials for the
