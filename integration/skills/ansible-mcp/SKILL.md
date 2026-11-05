@@ -122,3 +122,30 @@ reaching for the nearest tool:
 - restart, retry or resume a run
 - schedule anything for later
 - tell two callers apart in its audit log
+
+## Connecting the server
+
+This skill drives an MCP server. If the `ansible-mcp` tools are not available
+yet, the server is one command away — the PyPI package is
+`ansible-mcp-controller`, and ansible-core arrives with it:
+
+```bash
+uv tool install ansible-mcp-controller
+```
+
+In an `mcpServers` block (Claude Code, Cursor, anything MCP-compatible):
+
+```json
+{
+  "mcpServers": {
+    "ansible-mcp": {
+      "command": "uvx",
+      "args": ["--from", "ansible-mcp-controller", "ansible-mcp"]
+    }
+  }
+}
+```
+
+The controller then needs credentials for the hosts it will manage — keys,
+passwords and host keys are covered in
+[reaching hosts](https://github.com/ppavlovrus/simple_ansible_controller/blob/main/docs/connecting-hosts.md).
