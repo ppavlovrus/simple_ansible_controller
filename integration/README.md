@@ -5,7 +5,8 @@ Two transports, for two situations.
 ## stdio: the client launches the server
 
 Nothing to configure, nothing listening on a port. The right choice on a
-workstation.
+workstation. The package is `ansible-mcp-controller` on PyPI (the `ansible-mcp`
+name there belongs to an unrelated project), and ansible-core arrives with it.
 
 Claude Code, Cursor, or anything reading an `mcpServers` block:
 
@@ -13,8 +14,8 @@ Claude Code, Cursor, or anything reading an `mcpServers` block:
 {
   "mcpServers": {
     "ansible-mcp": {
-      "command": "poetry",
-      "args": ["run", "ansible-mcp"],
+      "command": "uvx",
+      "args": ["--from", "ansible-mcp-controller", "ansible-mcp"],
       "env": {
         "ANSIBLE_MCP_DATA_DIR": "/home/you/.local/share/ansible-mcp"
       }
@@ -22,6 +23,9 @@ Claude Code, Cursor, or anything reading an `mcpServers` block:
   }
 }
 ```
+
+`uv tool install ansible-mcp-controller` gives the same command without uvx's
+temporary environments.
 
 Installed from the Debian package, the command is the absolute path instead:
 

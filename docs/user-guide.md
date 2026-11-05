@@ -24,19 +24,21 @@ not it, and [the concept](concept.md) explains why.
 
 Three ways, for three situations.
 
-### From the source tree, for a client to launch
+### From PyPI, for a client to launch
 
-The shortest path, and the one with no network surface at all: the client starts
-the process and talks to it over stdin/stdout.
+The shortest path, and the one with no network surface at all: the client
+starts the process and talks to it over stdin/stdout.
 
 ```bash
-git clone https://github.com/ppavlovrus/simple_ansible_controller
-cd simple_ansible_controller
-poetry install
-poetry run ansible-mcp        # speaks MCP on stdio; ctrl-c to stop
+uv tool install ansible-mcp-controller
+ansible-mcp                   # speaks MCP on stdio; ctrl-c to stop
 ```
 
-Needs Python 3.11 or newer and Poetry.
+Ansible-core arrives with the package, so this is the whole install: nothing
+to clone, no Poetry. `uv` comes from [Astral](https://docs.astral.sh/uv/);
+`pipx install ansible-mcp-controller` is the same thing if you already have
+pipx. To work on the controller itself, clone the source and `poetry install` —
+the command and the transports are identical.
 
 ### As a container, to serve over HTTP
 

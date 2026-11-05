@@ -24,19 +24,21 @@
 
 Три способа для трёх ситуаций.
 
-### Из исходников, чтобы запускал клиент
+### Из PyPI, чтобы запускал клиент
 
 Самый короткий путь и единственный без сетевой поверхности: процесс запускает сам
 клиент и общается с ним через stdin/stdout.
 
 ```bash
-git clone https://github.com/ppavlovrus/simple_ansible_controller
-cd simple_ansible_controller
-poetry install
-poetry run ansible-mcp        # говорит на MCP через stdio, ctrl-c для остановки
+uv tool install ansible-mcp-controller
+ansible-mcp                   # говорит на MCP через stdio, ctrl-c для остановки
 ```
 
-Нужны Python 3.11 или новее и Poetry.
+Ansible-core приезжает вместе с пакетом, так что это вся установка: клонировать
+нечего, Poetry не нужен. `uv` ставится [от Astral](https://docs.astral.sh/uv/);
+`pipx install ansible-mcp-controller` — то же самое, если pipx уже есть. Чтобы
+разрабатывать сам контроллер — клонируйте исходники и `poetry install`; команда
+и транспорты те же.
 
 ### Контейнером, чтобы отдавать по HTTP
 
