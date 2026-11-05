@@ -14,6 +14,9 @@ permissions:
   contents: write
   packages: write
 
+env:
+  POETRY_VERSION: "2.3.3"
+
 jobs:
   packages:
     name: Debian packages
