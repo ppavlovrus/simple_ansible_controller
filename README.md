@@ -1,5 +1,7 @@
 # ansible-mcp
 
+[![CI](https://github.com/ppavlovrus/simple_ansible_controller/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ppavlovrus/simple_ansible_controller/actions/workflows/ci.yml)
+
 A minimal Ansible controller with an MCP interface, for AI agents — and a REST
 API for the humans who work alongside them.
 
@@ -30,11 +32,12 @@ both. See [docs/concept.md](docs/concept.md).
 The three-line version is below; the [user guide](docs/user-guide.md) is the same
 path with every step explained, plus what to do when it does not work.
 
-The fastest path is stdio, where the client launches the process:
+The fastest path is stdio, where the client launches the process. The package
+is `ansible-mcp-controller` on PyPI, and ansible-core arrives with it:
 
 ```bash
-poetry install
-poetry run ansible-mcp        # speaks MCP on stdin/stdout
+uv tool install ansible-mcp-controller
+ansible-mcp                   # speaks MCP on stdin/stdout
 ```
 
 In Claude Code, or any MCP client:
@@ -43,8 +46,8 @@ In Claude Code, or any MCP client:
 {
   "mcpServers": {
     "ansible-mcp": {
-      "command": "poetry",
-      "args": ["run", "ansible-mcp"],
+      "command": "uvx",
+      "args": ["--from", "ansible-mcp-controller", "ansible-mcp"],
       "env": { "ANSIBLE_MCP_DATA_DIR": "/tmp/ansible-mcp" }
     }
   }
@@ -197,8 +200,7 @@ Contributors, human or otherwise, start at [AGENTS.md](AGENTS.md).
 
 The core works: runs, cancellation, timeouts, recovery after a crash, playbook
 storage, providers, redaction, an audit trail, a checked token and both
-surfaces — MCP and REST. Not yet: cloud providers and
-execution-environment isolation — see the roadmap.
+surfaces — MCP and REST. Not yet: cloud providers — see the roadmap.
 
 ## License
 
