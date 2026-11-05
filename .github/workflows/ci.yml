@@ -27,7 +27,7 @@ jobs:
       matrix:
         # pyproject promises >=3.11, so every version that claim covers is run.
         # An untested promise is the kind that breaks for someone else.
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
@@ -236,7 +236,7 @@ jobs:
           '
 
       - name: Keep the package for inspection
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ansible-mcp-deb-amd64
           path: dist/*.deb
