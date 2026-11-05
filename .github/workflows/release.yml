@@ -36,7 +36,7 @@ jobs:
       - name: Build
         run: packaging/build-deb.sh ${{ matrix.architecture }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-${{ matrix.architecture }}
           path: dist/*.deb
@@ -52,7 +52,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to the registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -96,6 +96,36 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  pypi:
+    name: PyPI package
+    runs-on: ubuntu-latest
+    # Only a real release publishes: a workflow_dispatch dry run has no tag and
+    # nothing versioned to attach the upload to.
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    # Trusted publishing: PyPI verifies GitHub's OIDC claim, so there is no
+    # token in the secrets to rotate. Requires a pending publisher for
+    # ansible-mcp-controller configured once at pypi.org/manage/account/publishing.
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: poetry
+
+      - name: Build the sdist and wheel
+        run: poetry build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+
   release:
     name: GitHub release
     runs-on: ubuntu-latest
@@ -105,7 +135,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: deb-*
           merge-multiple: true
