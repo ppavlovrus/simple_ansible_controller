@@ -1,5 +1,8 @@
 [project]
-name = "ansible-mcp"
+# PyPI name: "ansible-mcp" is taken by an unrelated project, so the
+# distribution is ansible-mcp-controller while the console command and the deb
+# package stay ansible-mcp.
+name = "ansible-mcp-controller"
 version = "0.1.0"
 description = "Minimal Ansible controller with an MCP interface for AI agents"
 readme = "README.md"
